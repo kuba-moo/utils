@@ -39,8 +39,8 @@
 #define FNORM "\e[0m"
 
 #define dbg(fmt...)  if (0) printf(fmt)
-#define msg(fmt...)  printf(fmt)
-#define pinf(msg)    printf(msg " [pair %llu]\n", pair_no)
+#define msg(fmt...)  if (g_msg) printf(fmt)
+#define pinf(msg)    if (g_msg) printf(msg " [pair %llu]\n", pair_no)
 #define err(fmt...)  fprintf(stderr, fmt)
 #define err_ret(fmt...) ({ err(fmt); 1; })
 
@@ -58,6 +58,7 @@ int g_bucket = 1;
 bool g_dump;
 bool g_hm;
 int g_n_skip;
+bool g_msg = true;
 
 static struct opt_table opts[] = {
 	OPT_WITH_ARG("-i|--interface <ifname>", opt_set_charp, NULL,
@@ -78,6 +79,8 @@ static struct opt_table opts[] = {
 			&g_hm, "dump heat map"),
 	OPT_WITH_ARG("-s|--skip <s>", opt_set_intval, NULL,
 		     &g_n_skip, "skip <n> results after notif"),
+	OPT_WITHOUT_ARG("-q|--quiet", opt_set_invbool,
+			&g_msg, "suppress text output"),
 	OPT_ENDTABLE
 };
 
@@ -361,7 +364,7 @@ void dist_dump(unsigned long long *t1, unsigned long long *t2,
 		}
 
 		if (v1 || v2 || v3)
-			msg("%d %llu %llu %llu\n", i*8, v1, v2, v3);
+			printf("%d %llu %llu %llu\n", i*8, v1, v2, v3);
 	}
 }
 
