@@ -1,0 +1,11 @@
+#!/usr/bin/gnuplot
+
+filename=system("echo $GPF")
+
+set terminal png size 1200,1200
+set output filename.".png"
+
+set xrange [0:500]
+set yrange [0:500]
+
+plot filename matrix with image
