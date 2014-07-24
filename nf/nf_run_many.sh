@@ -1,12 +1,13 @@
 #!/bin/bash
 
-HOMANY=1
-[ $# -lt 1 ] && echo "gimme result name [and homany]" && exit 1
-test $# -ge 2 && HOMANY=$2
+[ -z "$RES" ] && RES="nf_result"
+[ -z "$HOMANY" ] && HOMANY=1
+[ -z "$IFG" ] && IFG=$((2**11))
+[ -z "$LEN" ] && LEN=1024
+[ -z "$N_PKTS" ] && N_PKTS=$((2**20)) # 1M
 
-IFG=$((2**8))
-LEN=96
-N_PKTS=$((2**24)) # 16M
+# Say what we got
+echo RES: $RES HOMANY: $HOMANY IFG: $IFG LEN: $LEN N_PKTS: $N_PKTS
 
 # First programm rng seed
 nf_set_gener.pl 0 0 4 0
@@ -14,9 +15,9 @@ nf_set_gener.pl 0 0 0 0
 
 for i in `seq $HOMANY`
 do
-    echo -e "\e[32;1mRUNNING $1_$i\e[0m\n"
+    echo -e "\e[32;1mRUNNING ${RES}_$i\e[0m\n"
 
-    tcpdump -i p1p1 -w $1_$i &
+    tcpdump -i p1p1 -w ${RES}_$i &
 
     sleep 2
 
@@ -28,4 +29,6 @@ do
     sleep 2
 
     killall tcpdump
+
+    sleep 1
 done
