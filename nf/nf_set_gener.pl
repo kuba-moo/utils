@@ -12,7 +12,7 @@ if (scalar(@ARGV) != 4) {
 my $marker = nf_regread('nf2c0', STATS_MARKER_REG ());
 
 if ($marker != 0xaabbccdd) {
-    print "\e[31mMarker not found!", $marker, "\e[0m\n";
+    printf("\e[31mMarker not found! %x\e[0m\n", $marker);
     exit 1;
 }
 
