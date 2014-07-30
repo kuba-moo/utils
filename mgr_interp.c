@@ -21,6 +21,7 @@
 
 #define _GNU_SOURCE 1
 
+#include <assert.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -45,7 +46,7 @@
 
 #define dbg(fmt...)  if (0) printf(fmt)
 #define msg(fmt...)  if (g_msg) printf(fmt)
-#define pinf(msg)    if (g_msg) printf(msg " [pair %llu]\n", pair_no)
+#define pinf(msg)    if (g_msg) printf(msg " [pair %u]\n", d->n_samples)
 #define err(fmt...)  fprintf(stderr, fmt)
 #define err_ret(fmt...) ({ err(fmt); 1; })
 #define err_nret(fmt...) ({ err(fmt); NULL; })
@@ -58,14 +59,6 @@
 #define us_to_clk(x) ((x)*1000/8)
 #define clk_to_us(x) ((x)*8/1000)
 
-char *g_file_name;
-char *g_ifc_name;
-int g_search_val;
-unsigned long long g_pr_start, g_pr_end;
-int g_bucket = 1;
-bool g_dump;
-bool g_hm;
-int g_n_skip;
 bool g_msg = true;
 
 struct {
@@ -79,27 +72,7 @@ static struct opt_table opts[] = {
 	OPT_WITH_ARG("-p|--pfx <prefix>", opt_set_charp, NULL,
 		     &args.res_pfx, "read files from result dir with names <prefix>*"),
 	OPT_WITH_ARG("-d|--res-dir <path>", opt_set_charp, NULL,
-		     &args.res_pfx, "look for result files in <path>, default ./"),
-
-
-	OPT_WITH_ARG("-i|--interface <ifname>", opt_set_charp, NULL,
-		     &g_ifc_name, "live capture on interface <ifname>"),
-	OPT_WITH_ARG("-r|--read <file>", opt_set_charp, NULL,
-		     &g_file_name, "read packets from pcap <file>"),
-	OPT_WITH_ARG("-n|--bucket <val>", opt_set_intval, NULL,
-		     &g_bucket, "aggragate <val> results for distribution"),
-	OPT_WITH_ARG("-f|--find <val>", opt_set_intval, NULL,
-		     &g_search_val, "find samples with delay <val> clocks"),
-	OPT_WITH_ARG("-b|--begin <val>", opt_set_ulonglongval_si, NULL,
-		     &g_pr_start, "print pairs from no <val>"),
-	OPT_WITH_ARG("-e|--end <val>", opt_set_ulonglongval_si, NULL,
-		     &g_pr_end, "print pairs to no <val>"),
-	OPT_WITHOUT_ARG("-D|--dist", opt_set_bool,
-			&g_dump, "dump distributions"),
-	OPT_WITHOUT_ARG("-H|--heatmap", opt_set_bool,
-			&g_hm, "dump heat map"),
-	OPT_WITH_ARG("-s|--skip <s>", opt_set_intval, NULL,
-		     &g_n_skip, "skip <n> results after notif"),
+		     &args.res_dir, "look for result files in <path>, default ./"),
 	OPT_WITHOUT_ARG("-q|--quiet", opt_set_invbool,
 			&g_msg, "suppress text output"),
 	OPT_ENDTABLE
@@ -128,8 +101,47 @@ struct enqueued_frame {
 	struct result_frame fr;
 } __attribute__ ((packed));
 
-#define DIST_SZ (1 << 25)
-unsigned long long dist1[DIST_SZ], dist2[DIST_SZ], dist_min[DIST_SZ];
+struct delay {
+	int n_samples;
+	int n_notifs;
+
+	pcap_t *pcap_; /* temporary pointer to pcap context */
+
+	int trace_size_;
+	u32 *traces[3];
+};
+
+struct delay_bank {
+	struct delay **bank;
+};
+
+void delay_trace_grow(struct delay *d)
+{
+	int i;
+
+	if (!d->trace_size_) {
+		d->trace_size_ = 2048;
+		for (i = 0; i < 3; i++)
+			d->traces[i] = tal_arr(d, u32, d->trace_size_);
+	} else {
+		d->trace_size_ *= 2;
+		for (i = 0; i < 3; i++)
+			tal_resize(&d->traces[i], d->trace_size_);
+	}
+}
+
+static inline void delay_push(struct delay *d, u32 t1, u32 t2, u32 t3)
+{
+	assert(d->trace_size_ >= d->n_samples);
+
+	if (unlikely(d->trace_size_ == d->n_samples))
+		delay_trace_grow(d);
+
+	d->traces[0][d->n_samples] = t1;
+	d->traces[1][d->n_samples] = t2;
+	d->traces[2][d->n_samples] = t3;
+	d->n_samples++;
+}
 
 void result_ntoh(struct result *r)
 {
@@ -151,148 +163,35 @@ static inline int result_get_delta(const u32 rx_ts, const u32 tx_ts)
 	return d;
 }
 
-static unsigned long long pair_no;
-
-static inline void dist_record(unsigned long long tbl[],
-			       unsigned long long val)
+void result_process_pair(struct delay *d,
+			 const struct result *r1,
+			 const struct result *r2,
+			 u32 tx_ts)
 {
-	if (val > DIST_SZ) {
-		msg("Dist overflow: %llu\n", val);
-		val = DIST_SZ - 1;
-	}
-	tbl[val]++;
-}
+	static int last_tx_ts;
+	u32 d1, d2, min;
 
-#define MIN 2500
-#define M_S (1 << 12)
-
-int hm_max_1, hm_max_2, hm_min_1 = M_S, hm_min_2 = M_S;
-unsigned arr[M_S][M_S];
-
-static inline void hm_record(int r1, int r2)
-{
-	r1 -= MIN;
-	r2 -= MIN;
-	r1 /= 2;
-	r2 /= 2;
-
-	if (r1 < 0 || r2 < 0) {
-		msg("HM min underflow by %d %d\n", r1, r2);
-		return;
-	}
-
-	arr[r1][r2]++;
-
-	if (hm_max_1 < r1)
-		hm_max_1 = r1;
-	if (hm_max_2 < r2)
-		hm_max_2 = r2;
-	if (hm_min_1 > r1)
-		hm_min_1 = r1;
-	if (hm_min_2 > r2)
-		hm_min_2 = r2;
-}
-
-void hm_dump(void)
-{
-	int i, j;
-
-	for (i = hm_min_1; i <= hm_max_1; i++) {
-		for (j = hm_min_2; j <= hm_max_2; j++)
-			printf("%d ", arr[i][j]);
-		putchar('\n');
-	}
-}
-
-void result_process_pair(const struct result *r1, const struct result *r2,
-			 u32 tx_ts, bool skip)
-{
-	static struct result last_r1, last_r2;
-	int d1, d2, min, res;
-
-	if (tx_ts - last_r1.tx_ts < 0x2300 && tx_ts - last_r1.tx_ts > 0x1e00) {
+	if (tx_ts - last_tx_ts < 0x2300 && tx_ts - last_tx_ts > 0x1e00) {
 		pinf("Fixup tx_ts");
 		tx_ts ^= 0x1000;
 	}
+	last_tx_ts = tx_ts;
 
 	d1 = result_get_delta(r1->rx_ts, tx_ts);
 	d2 = result_get_delta(r2->rx_ts, tx_ts);
 
-	if (d1 > d2) {
-		res = d1 - d2;
+	if (d1 > d2)
 		min = d2;
-	} else {
-		res = d2 - d1;
+	else
 		min = d1;
-	}
 
-#define BAD_TRH 4500
-#define bad_macro(d)						\
-	({							\
-		static unsigned long long bad_##d;		\
-		if (d > BAD_TRH && !bad_##d)			\
-			bad_##d = pair_no;			\
-		if (d <= BAD_TRH && bad_##d) {		\
-			msg(#d " was bad on pairs [%llu - %llu]\n",	\
-			    bad_##d, pair_no - bad_##d);		\
-			bad_##d = 0;					\
-		}							\
-	})
-//	bad_macro(d1);
-	bad_macro(d2);
-//	bad_macro(min);
-
-	if (d1 == g_search_val || d2 == g_search_val)
-		msg("found %d at pair %llu\n", g_search_val, pair_no);
-	if (pair_no >= g_pr_start && pair_no < g_pr_end)
-		msg("%llu T %08x[%04x] R %08x[%04x]%c%08x[%04x]%c  D %d.%03d  %d.%03d us   d %d.%03d\n",
-		    pair_no, tx_ts, tx_ts - last_r1.tx_ts,
-		    r1->rx_ts, r1->rx_ts - last_r1.rx_ts, r1->tx_ts ? ' ' : 'S',
-		    r2->rx_ts, r2->rx_ts - last_r2.rx_ts, r2->tx_ts ? ' ' : 'S',
-		    d1*8/1000, d1*8%1000, d2*8/1000, d2*8%1000,
-		    res*8/1000, res*8%1000);
-	last_r1.rx_ts = r1->rx_ts;
-	last_r2.rx_ts = r2->rx_ts;
-	last_r1.tx_ts = last_r2.tx_ts = tx_ts;
-
-	//msg("%llu %d %d %d\n", pair_no, d1*8, d2*8, min*8);
-
-	if (skip)
-		return;
-
-	if (g_dump) {
-		dist_record(dist1, d1);
-		dist_record(dist2, d2);
-		dist_record(dist_min, min);
-	}
-	if (g_hm)
-		hm_record(d1, d2);
-}
-
-static inline bool is_time_backward(s64 ts, u32 *__mem)
-{
-	s64 mem = *__mem;
-	*__mem = ts;
-
-	/* Timestamp zeroed - probably cond_resched() notif */
-	if (!ts)
-		return false;
-	/* Typical case - time flows ok */
-	if (ts > mem && (ts - 0xFFFF < mem || !mem))
-		return false;
-	/* Wrap-around */
-	if ((int)mem < 0 && ts < 0xFFFF)
-		return false;
-
-	//msg("Nope %llu %llu %llx %llx     %lld\n", ts, mem, ts, mem, ts - mem);
-
-	return true;
+	delay_push(d, d1, d2, min);
 }
 
 void packet_cb(u_char *args, const struct pcap_pkthdr *header,
 	       const u_char *packet)
 {
-	static int skip_frames;
+	struct delay *d = (void *)args;
 	u8 src, other;
 	struct result_frame *fr = (void *)packet, *dut1, *dut2;
 	struct enqueued_frame *ofr;
@@ -300,6 +199,7 @@ void packet_cb(u_char *args, const struct pcap_pkthdr *header,
 
 	if (header->len != sizeof(*fr)) {
 		err("Wrong sized packet: %d!\n", header->len);
+		pcap_breakloop(d->pcap_);
 		return;
 	}
 
@@ -313,7 +213,7 @@ void packet_cb(u_char *args, const struct pcap_pkthdr *header,
 		memcpy(&copy->fr, packet, header->len);
 
 		if (!list_empty(&g_pkt_queue[src]))
-			msg("Multi enqueue %llu\n", pair_no/128);
+			msg("Multi enqueue %u\n", d->n_samples/128);
 		list_add_tail(&g_pkt_queue[src], &copy->node);
 
 		return;
@@ -334,70 +234,25 @@ void packet_cb(u_char *args, const struct pcap_pkthdr *header,
 
 		tx_ts = dut1->r[i].tx_ts ?: dut2->r[i].tx_ts;
 		if (is_notif) {
-			if (skip_frames)
-				pinf("Multiple skip frames!");
-			skip_frames = g_n_skip;
+			d->n_notifs++;
 
 			if (!dut1->r[i].tx_ts && !dut2->r[i].tx_ts) {
 				pinf("Double skip!");
-				skip_frames = skip_frames ?: 1;
+				goto cb_out;
 			}
-			/*
-			msg("skip %d %d [pair %llu]\n",
-			!!dut1->r[i].tx_ts, !!dut2->r[i].tx_ts, pair_no);*/
 		}
 
 		if (dut1->r[i].tx_ts != dut2->r[i].tx_ts && !is_notif) {
 			pinf("Frame tx ts mismatch");
+			pcap_breakloop(d->pcap_);
 			goto cb_out;
 		}
-		/*
-		if (is_time_backward(dut1->r[i].tx_ts, &last_tx_ts) ||
-		    is_time_backward(dut1->r[i].rx_ts, &last_rx_ts1) ||
-		    is_time_backward(dut2->r[i].rx_ts, &last_rx_ts2))
-			msg("Time runs backward [pair %llu]\n", pair_no);
-		*/
-		result_process_pair(&dut1->r[i], &dut2->r[i],
-				    tx_ts, !!skip_frames);
-
-		if (skip_frames)
-			skip_frames--;
-
-		pair_no++;
+		result_process_pair(d, &dut1->r[i], &dut2->r[i], tx_ts);
 	}
 
 cb_out:
 	free(ofr);
 }
-
-void dist_dump(unsigned long long *t1, unsigned long long *t2,
-	       unsigned long long *t3)
-{
-	int i, j;
-
-	for (i = 0; i < DIST_SZ; i += g_bucket) {
-		unsigned long long v1 = 0, v2 = 0, v3 = 0;
-
-		for (j = 0; j < g_bucket; j++) {
-			v1 += t1[i+j];
-			v2 += t2[i+j];
-			v3 += t3[i+j];
-		}
-
-		if (v1 || v2 || v3)
-			printf("%d %llu %llu %llu\n", i*8, v1, v2, v3);
-	}
-}
-
-struct delay {
-	int n_samples;
-
-	u32 *traces[3];
-};
-
-struct delay_bank {
-	struct delay **bank;
-};
 
 struct delay *read_delay(const char *fname)
 {
@@ -408,11 +263,12 @@ struct delay *read_delay(const char *fname)
 
 	msg("Loading file %s\n", fname);
 
-	pcap_src = pcap_open_offline(g_file_name, errbuf);
+	pcap_src = pcap_open_offline(fname, errbuf);
 	if (!pcap_src)
 		return err_nret("Could not load packets: %s\n", errbuf);
 
 	d = talz(NULL, struct delay);
+	d->pcap_ = pcap_src;
 
 	res = pcap_loop(pcap_src, PCAP_CNT_INF, packet_cb, (void *)d);
 	if (res) {
@@ -421,8 +277,13 @@ struct delay *read_delay(const char *fname)
 			pcap_perror(pcap_src, "Error while reading packets");
 		tal_free(d);
 		d = NULL;
+		goto out;
 	}
 
+	d->pcap_ = NULL;
+	msg("\tLoaded %d samples, %d notifs\n", d->n_samples, d->n_notifs);
+
+out:
 	pcap_close(pcap_src);
 
 	return d;
@@ -454,7 +315,7 @@ struct delay_bank *open_many(const char *dir, const char *pfx)
 			continue;
 
 		if (rb->bank)
-			tal_resize(rb->bank, ++n_res);
+			tal_resize(&rb->bank, ++n_res);
 		else
 			rb->bank = tal_arr(rb, struct delay *, ++n_res);
 
