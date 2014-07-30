@@ -48,6 +48,7 @@
 #define pinf(msg)    if (g_msg) printf(msg " [pair %llu]\n", pair_no)
 #define err(fmt...)  fprintf(stderr, fmt)
 #define err_ret(fmt...) ({ err(fmt); 1; })
+#define err_nret(fmt...) ({ err(fmt); NULL; })
 #define perr_ret(msg) ({ perror(msg); 1; })
 #define perr_nret(msg) ({ perror(msg); NULL; })
 
@@ -388,36 +389,6 @@ void dist_dump(unsigned long long *t1, unsigned long long *t2,
 	}
 }
 
-int old_main(int argc, char **argv)
-{
-	char errbuf[PCAP_ERRBUF_SIZE];
-	pcap_t *pcap_src = NULL;
-
-
-	if (g_ifc_name)
-		pcap_src = pcap_open_live(g_ifc_name, PCAP_SNAPLEN_ALL,
-					  1, -1, errbuf);
-	else if (g_file_name)
-		pcap_src = pcap_open_offline(g_file_name, errbuf);
-
-	if (!pcap_src) {
-		fprintf(stderr, "Couldn't open packet source: %s\n", errbuf);
-		return 1;
-	}
-
-	pcap_loop(pcap_src, PCAP_CNT_INF, packet_cb, NULL);
-
-	pcap_close(pcap_src);
-
-	if (g_dump)
-		dist_dump(dist1, dist2, dist_min);
-
-	if (g_hm)
-		hm_dump();
-
-	return 0;
-}
-
 struct delay {
 	int n_samples;
 
@@ -430,12 +401,31 @@ struct delay_bank {
 
 struct delay *read_delay(const char *fname)
 {
-	struct delay *r;
+	int res;
+	struct delay *d;
+	pcap_t *pcap_src = NULL;
+	char errbuf[PCAP_ERRBUF_SIZE];
 
-	printf("f: %s\n", fname);
-	r = talz(NULL, struct delay);
+	msg("Loading file %s\n", fname);
 
-	return r;
+	pcap_src = pcap_open_offline(g_file_name, errbuf);
+	if (!pcap_src)
+		return err_nret("Could not load packets: %s\n", errbuf);
+
+	d = talz(NULL, struct delay);
+
+	res = pcap_loop(pcap_src, PCAP_CNT_INF, packet_cb, (void *)d);
+	if (res) {
+		/* Print pcap msg if break was due to internal pcap error. */
+		if (res == -1)
+			pcap_perror(pcap_src, "Error while reading packets");
+		tal_free(d);
+		d = NULL;
+	}
+
+	pcap_close(pcap_src);
+
+	return d;
 }
 
 struct delay_bank *open_many(const char *dir, const char *pfx)
@@ -469,8 +459,11 @@ struct delay_bank *open_many(const char *dir, const char *pfx)
 			rb->bank = tal_arr(rb, struct delay *, ++n_res);
 
 		rb->bank[n_res - 1] = read_delay(ent->d_name);
-		if (!rb->bank[n_res - 1])
-			goto read_fail;
+		if (!rb->bank[n_res - 1]) {
+			tal_free(rb);
+			rb = NULL;
+			break;
+		}
 		tal_steal(rb->bank, rb->bank[n_res - 1]);
 	}
 
@@ -480,16 +473,6 @@ struct delay_bank *open_many(const char *dir, const char *pfx)
 	free(cwd);
 
 	return rb;
-
-read_fail:
-	tal_free(rb);
-	closedir(d);
-
-	chdir(cwd);
-	free(cwd);
-
-	return NULL;
-
 }
 
 int main(int argc, char **argv)
@@ -500,6 +483,8 @@ int main(int argc, char **argv)
 
 	if (!opt_parse(&argc, argv, opt_log_stderr))
 		return 1;
+
+	opt_free_table();
 
 	if (!args.res_pfx)
 		return err_ret("Please specify result file name prefix\n");
