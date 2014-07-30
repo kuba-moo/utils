@@ -189,7 +189,7 @@ void result_process_pair(const struct result *r1, const struct result *r2,
 	static struct result last_r1, last_r2;
 	int d1, d2, min, res;
 
-	if (last_r1.tx_ts - tx_ts < 0x1000 && last_r1.tx_ts - tx_ts > 0xe00) {
+	if (tx_ts - last_r1.tx_ts < 0x2300 && tx_ts - last_r1.tx_ts > 0x1e00) {
 		pinf("Fixup tx_ts");
 		tx_ts ^= 0x1000;
 	}
