@@ -45,8 +45,8 @@
 #define FNORM "\e[0m"
 
 #define dbg(fmt...)  if (0) printf(fmt)
-#define msg(fmt...)  if (g_msg) printf(fmt)
-#define pinf(msg)    if (g_msg) printf(msg " [pair %u]\n", d->n_samples)
+#define msg(fmt...)  ({ if (g_msg) printf(fmt); })
+#define pinf(msg)    ({ if (g_msg) printf(msg " [pair %u]\n", sc->d->n_samples); })
 #define err(fmt...)  fprintf(stderr, fmt)
 #define err_ret(fmt...) ({ err(fmt); 1; })
 #define err_nret(fmt...) ({ err(fmt); NULL; })
@@ -62,6 +62,7 @@
 bool g_msg = true;
 
 struct {
+	int ifg;
 	char *res_pfx;
 	char *res_dir;
 } args = {
@@ -73,11 +74,14 @@ static struct opt_table opts[] = {
 		     &args.res_pfx, "read files from result dir with names <prefix>*"),
 	OPT_WITH_ARG("-d|--res-dir <path>", opt_set_charp, NULL,
 		     &args.res_dir, "look for result files in <path>, default ./"),
+	OPT_WITH_ARG("-i|--ifg <clks>", opt_set_intval, NULL,
+		     &args.ifg, "expected inter frame gap"),
 	OPT_WITHOUT_ARG("-q|--quiet", opt_set_invbool,
 			&g_msg, "suppress text output"),
 	OPT_ENDTABLE
 };
 
+/* Actual packet structures, note that all fields are in network order. */
 struct result {
 	uint32_t rx_ts;
 	uint32_t tx_ts;
@@ -91,6 +95,7 @@ struct result_frame {
 	uint64_t ts;
 } __attribute__ ((packed));
 
+/* Wait queue to match stats from different DUTs */
 struct list_head g_pkt_queue[2] = {
 	LIST_HEAD_INIT(g_pkt_queue[0]),
 	LIST_HEAD_INIT(g_pkt_queue[1])
@@ -101,11 +106,42 @@ struct enqueued_frame {
 	struct result_frame fr;
 } __attribute__ ((packed));
 
+/* Program samples, struct result is translated to this one. */
+struct sample {
+	u64 tx_ts;    /* True tx time stamp. */
+	u64 rx_ts[2]; /* RX time stamps for machines. */
+};
+
+struct delay;
+struct sample_context {
+	pcap_t *pcap;
+
+	bool is_first;
+	bool is_notif;
+	struct sample c, p; /* current and previos sample. */
+
+	struct delay *d;
+};
+
+static void sc_reset(struct sample_context *sc, struct delay *d, pcap_t *pcap)
+{
+	memset(sc, 0, sizeof(*sc));
+
+	sc->d = d;
+	sc->pcap = pcap;
+	sc->is_first = true;
+}
+
+static inline void sc_next(struct sample_context *sc)
+{
+	sc->p = sc->c;
+
+	sc->is_notif = sc->is_first = false;
+}
+
 struct delay {
 	int n_samples;
 	int n_notifs;
-
-	pcap_t *pcap_; /* temporary pointer to pcap context */
 
 	int trace_size_;
 	u32 *traces[3];
@@ -143,63 +179,96 @@ static inline void delay_push(struct delay *d, u32 t1, u32 t2, u32 t3)
 	d->n_samples++;
 }
 
-void result_ntoh(struct result *r)
+static inline void sc_load_res(struct sample_context *sc,
+			       const struct result r1, const struct result r2)
 {
-	r->rx_ts = ntohl(r->rx_ts);
-	r->tx_ts = ntohl(r->tx_ts);
+	sc->is_notif = !r1.tx_ts || !r2.tx_ts;
+
+	sc->c.tx_ts = ntohl(r1.tx_ts) ?: ntohl(r2.tx_ts);
+	sc->c.rx_ts[0] = ntohl(r1.rx_ts);
+	sc->c.rx_ts[1] = ntohl(r2.rx_ts);
 }
 
-static inline int result_get_delta(const u32 rx_ts, const u32 tx_ts)
+static inline int sc_check_double_skip(const struct sample_context *sc)
 {
-	uint64_t rx = rx_ts;
-	uint64_t tx = tx_ts;
-	int d;
+	if (likely(!sc->is_notif))
+		return 0;
 
-	/* Fix wrap around - */
-	if ((int)tx < 0)
-		rx |= 1ULL << 32;
-	d = rx - tx;
+	if (!sc->c.tx_ts) {
+		if (sc->is_first)
+			pinf("\tDouble skip, ignoring first sample");
+		else
+			err("\tFIXME: Double skip, ignoring sample\n");
 
-	return d;
+		return 1;
+	}
+
+	return 0;
 }
 
-void result_process_pair(struct delay *d,
-			 const struct result *r1,
-			 const struct result *r2,
-			 u32 tx_ts)
+static inline void unwrap_time_(u64 *prev, u64 *curr)
 {
-	static int last_tx_ts;
+	u64 prev_high_bit = *prev & (1U << 31);
+	u64 curr_high_bit = *curr & (1U << 31);
+
+	*curr |= (prev_high_bit & ~curr_high_bit) << 1;
+	*prev &= 0xFFFFFFFF;
+}
+
+static inline void sc_unwrap_time(struct sample_context *sc)
+{
+	unwrap_time_(&sc->p.tx_ts, &sc->c.tx_ts);
+	unwrap_time_(&sc->p.rx_ts[0], &sc->c.rx_ts[0]);
+	unwrap_time_(&sc->p.rx_ts[1], &sc->c.rx_ts[1]);
+}
+
+static inline void sc_check_ifg(struct sample_context *sc)
+{
+	s64 expected_ts_diff;
+
+	if (!args.ifg || sc->is_first)
+		return;
+
+	expected_ts_diff = sc->p.tx_ts + args.ifg - sc->c.tx_ts;
+
+	if (unlikely(expected_ts_diff < -0x900 &&
+		     expected_ts_diff > -0x1100)) {
+		pinf("\tFixup tx_ts");
+		sc->c.tx_ts ^= 0x1000;
+		expected_ts_diff = sc->p.tx_ts + args.ifg - sc->c.tx_ts;
+	}
+
+	if (unlikely(expected_ts_diff < -0x80 ||
+		     expected_ts_diff >  0x80)) {
+		err("Broken tx_ts\n");
+	}
+}
+
+static inline void sc_save_deltas(struct sample_context *sc)
+{
 	u32 d1, d2, min;
 
-	if (tx_ts - last_tx_ts < 0x2300 && tx_ts - last_tx_ts > 0x1e00) {
-		pinf("Fixup tx_ts");
-		tx_ts ^= 0x1000;
-	}
-	last_tx_ts = tx_ts;
+	d1 = sc->c.rx_ts[0] - sc->c.tx_ts;
+	d2 = sc->c.rx_ts[1] - sc->c.tx_ts;
 
-	d1 = result_get_delta(r1->rx_ts, tx_ts);
-	d2 = result_get_delta(r2->rx_ts, tx_ts);
+	min = d1 < d2 ? d1 : d2;
 
-	if (d1 > d2)
-		min = d2;
-	else
-		min = d1;
-
-	delay_push(d, d1, d2, min);
+	delay_push(sc->d, d1, d2, min);
 }
 
 void packet_cb(u_char *args, const struct pcap_pkthdr *header,
 	       const u_char *packet)
 {
-	struct delay *d = (void *)args;
-	u8 src, other;
+	struct sample_context *sc = (void *)args;
+	struct delay *d = sc->d;
 	struct result_frame *fr = (void *)packet, *dut1, *dut2;
 	struct enqueued_frame *ofr;
+	u8 src, other;
 	int i;
 
 	if (header->len != sizeof(*fr)) {
 		err("Wrong sized packet: %d!\n", header->len);
-		pcap_breakloop(d->pcap_);
+		pcap_breakloop(sc->pcap);
 		return;
 	}
 
@@ -223,31 +292,34 @@ void packet_cb(u_char *args, const struct pcap_pkthdr *header,
 
 	dut1 = src ? fr : &ofr->fr;
 	dut2 = other ? fr : &ofr->fr;
-	if (dut1->key != 0x55 || dut2->key != 0xaa)
+	if (dut1->key != 0x55 || dut2->key != 0xaa) {
 		pinf("Keys wrong!");
+		pcap_breakloop(sc->pcap);
+		goto cb_out;
+	}
+
 	for (i = 0; i < FR_N_RES; i++) {
-		u32 tx_ts;
-		const bool is_notif = !dut1->r[i].tx_ts || !dut2->r[i].tx_ts;
+		sc_load_res(sc, dut1->r[i], dut2->r[i]);
 
-		result_ntoh(&dut1->r[i]);
-		result_ntoh(&dut2->r[i]);
-
-		tx_ts = dut1->r[i].tx_ts ?: dut2->r[i].tx_ts;
-		if (is_notif) {
-			d->n_notifs++;
-
-			if (!dut1->r[i].tx_ts && !dut2->r[i].tx_ts) {
-				pinf("Double skip!");
-				goto cb_out;
-			}
-		}
-
-		if (dut1->r[i].tx_ts != dut2->r[i].tx_ts && !is_notif) {
+		if (dut1->r[i].tx_ts != dut2->r[i].tx_ts && !sc->is_notif) {
 			pinf("Frame tx ts mismatch");
-			pcap_breakloop(d->pcap_);
+			pcap_breakloop(sc->pcap);
 			goto cb_out;
 		}
-		result_process_pair(d, &dut1->r[i], &dut2->r[i], tx_ts);
+
+		if (sc->is_notif)
+			d->n_notifs++;
+
+		if (sc_check_double_skip(sc))
+			continue;
+
+		sc_unwrap_time(sc);
+
+		sc_check_ifg(sc);
+
+		sc_save_deltas(sc);
+
+		sc_next(sc);
 	}
 
 cb_out:
@@ -260,6 +332,7 @@ struct delay *read_delay(const char *fname)
 	struct delay *d;
 	pcap_t *pcap_src = NULL;
 	char errbuf[PCAP_ERRBUF_SIZE];
+	struct sample_context sc;
 
 	msg("Loading file %s\n", fname);
 
@@ -268,22 +341,18 @@ struct delay *read_delay(const char *fname)
 		return err_nret("Could not load packets: %s\n", errbuf);
 
 	d = talz(NULL, struct delay);
-	d->pcap_ = pcap_src;
+	sc_reset(&sc, d, pcap_src);
 
-	res = pcap_loop(pcap_src, PCAP_CNT_INF, packet_cb, (void *)d);
+	res = pcap_loop(pcap_src, PCAP_CNT_INF, packet_cb, (void *)&sc);
 	if (res) {
 		/* Print pcap msg if break was due to internal pcap error. */
 		if (res == -1)
 			pcap_perror(pcap_src, "Error while reading packets");
 		tal_free(d);
 		d = NULL;
-		goto out;
 	}
 
-	d->pcap_ = NULL;
 	msg("\tLoaded %d samples, %d notifs\n", d->n_samples, d->n_notifs);
-
-out:
 	pcap_close(pcap_src);
 
 	return d;
