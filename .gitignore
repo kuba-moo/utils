@@ -1,0 +1,7 @@
+# build files
+*.o
+*.d
+
+# binaries
+mgr_interp
+mgr_read_stat
