@@ -2,8 +2,8 @@
 
 [ -z "$RES" ] && RES="nf_result"
 [ -z "$HOMANY" ] && HOMANY=1
-[ -z "$IFG" ] && IFG=$((2**11))
-[ -z "$LEN" ] && LEN=1024
+[ -z "$IFG" ] && IFG=$((2**14))
+[ -z "$LEN" ] && LEN=512
 [ -z "$N_PKTS" ] && N_PKTS=$((2**20)) # 1M
 
 # Say what we got
@@ -12,6 +12,8 @@ echo RES: $RES HOMANY: $HOMANY IFG: $IFG LEN: $LEN N_PKTS: $N_PKTS
 # First programm rng seed
 nf_set_gener.pl 0 0 4 0
 nf_set_gener.pl 0 0 0 0
+
+[ $? -ne 0 ] && exit $?
 
 for i in `seq $HOMANY`
 do
