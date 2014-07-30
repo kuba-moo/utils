@@ -21,7 +21,7 @@ do
 
     tcpdump -i p1p1 -w ${RES}_$i &
 
-    sleep 2
+    sleep 1
 
     nf_set_gener.pl $LEN $IFG 2 $N_PKTS
     while [[ ! $(nf_check.pl) =~ fr_cnt_done ]]
