@@ -59,20 +59,22 @@ struct cmdline_args {
 extern struct cmdline_args args;
 
 struct delay {
-	int n_samples;
-	int n_notifs;
+	u32 n_samples;
+	u32 n_notifs;
 
 	u32 min_sample;
 	u32 max_sample;
 
 	char *fname;
 
-	int trace_size_;
+	u32 trace_size_;
 	u32 *traces[3];
 };
 
 struct delay_bank {
 	int n;
+
+	u32 min_samples;
 
 	struct delay **bank;
 };

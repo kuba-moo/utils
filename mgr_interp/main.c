@@ -58,9 +58,9 @@ typedef int (*delay2file_fn)(struct delay *d, FILE *f);
 #define deaggr(i) (d->min_sample + i * args.aggr)
 static int make_distr(struct delay *d, FILE *f)
 {
-	int i, t;
+	u32 i, t;
 	u32 *distr_table[3];
-	int table_size = 1 + (d->max_sample - d->min_sample) / args.aggr;
+	u32 table_size = 1 + (d->max_sample - d->min_sample) / args.aggr;
 
 	for (t = 0; t < 3; t++) {
 		distr_table[t] =
@@ -87,9 +87,9 @@ static int make_distr(struct delay *d, FILE *f)
 
 static int make_hm(struct delay *d, FILE *f)
 {
-	int i, j;
+	u32 i, j;
 	u32 **hm_table;
-	int dim = 1 + (d->max_sample - d->min_sample) / args.aggr;
+	u32 dim = 1 + (d->max_sample - d->min_sample) / args.aggr;
 
 	hm_table = calloc(dim, sizeof(*hm_table));
 	for (i = 0; i < dim; i++)
@@ -189,8 +189,13 @@ static struct delay_bank *open_many(const char *dir, const char *pfx)
 			rb = NULL;
 			break;
 		}
+		if (!rb->min_samples ||
+		    rb->min_samples > rb->bank[rb->n - 1]->n_samples)
+			rb->min_samples = rb->bank[rb->n - 1]->n_samples;
 		tal_steal(rb->bank, rb->bank[rb->n - 1]);
 	}
+	msg("Done reading, every run has at least %u samples\n",
+	    rb->min_samples);
 
 	closedir(d);
 
