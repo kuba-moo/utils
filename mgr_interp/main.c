@@ -52,16 +52,13 @@ static struct opt_table opts[] = {
 	OPT_ENDTABLE
 };
 
-static int make_distr(struct delay *d)
+typedef int (*delay2file_fn)(struct delay *d, FILE *f);
+
+static int make_distr(struct delay *d, FILE *f)
 {
 	int i, t;
 	u32 *distr_table[3];
 	int table_size = 1 + d->max_sample / args.aggr;
-	FILE *f;
-
-	f = fopen(d->fname, "w");
-	if (!f)
-		return perr_ret("Opening distr file to write failed");
 
 	for (t = 0; t < 3; t++) {
 		distr_table[t] =
@@ -83,12 +80,49 @@ static int make_distr(struct delay *d)
 	for (t = 0; t < 3; t++)
 		free(distr_table[t]);
 
-	fclose(f);
+	return 0;
+}
+
+static int make_hm(struct delay *d, FILE *f)
+{
+	int i;
+	u32 **hm_table;
+	int dim = 1 + (d->max_sample - d->min_sample) / args.aggr;
+
+	hm_table = calloc(dim, sizeof(*hm_table));
+	for (i = 0; i < dim; i++)
+		hm_table[i] = calloc(dim, sizeof(**hm_table));
+
+#define aggr(t) ((d->traces[t][i] - d->min_sample) / args.aggr)
+	for (i = 0; i < d->n_samples; i++)
+		hm_table[aggr(0)][aggr(1)]++;
+#undef aggr
+
+	for (i = 0; i < dim; i++)
+		free(hm_table[i]);
+	free(hm_table);
 
 	return 0;
 }
 
-static int make_distributions(const char *dir, struct delay_bank *db)
+static inline int make_delay_file(struct delay *d, delay2file_fn make_single)
+{
+	int ret;
+	FILE *f;
+
+	f = fopen(d->fname, "w");
+	if (!f)
+		return perr_ret("Opening distr file to write failed");
+
+	ret = make_single(d, f);
+
+	fclose(f);
+
+	return ret;
+}
+
+static int make_per_delay(const char *dir, struct delay_bank *db,
+			  delay2file_fn make_single)
 {
 	int i, res;
 	char *cwd;
@@ -104,7 +138,7 @@ static int make_distributions(const char *dir, struct delay_bank *db)
 		return perr_ret("Could not go to the result dir");
 
 	for (i = 0; i < db->n; i++)
-		make_distr(db->bank[i]);
+		make_delay_file(db->bank[i], make_single);
 
 	chdir(cwd);
 	free(cwd);
@@ -177,7 +211,9 @@ int main(int argc, char **argv)
 		return 1;
 
 	if (args.distr)
-		make_distributions(args.distr, db);
+		make_per_delay(args.distr, db, make_distr);
+	if (args.hm)
+		make_per_delay(args.hm, db, make_hm);
 
 	tal_free(db);
 
