@@ -75,7 +75,7 @@ static int make_distr(struct delay *d)
 		if (distr_table[0][i] ||
 		    distr_table[1][i] ||
 		    distr_table[2][i])
-			fprintf(f, "%d %u %u %u\n", i*8,
+			fprintf(f, "%d %u %u %u\n", i*args.aggr*8,
 				distr_table[0][i],
 				distr_table[1][i],
 				distr_table[2][i]);
