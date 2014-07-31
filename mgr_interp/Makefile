@@ -1,7 +1,7 @@
 CC=gcc
-CFLAGS=-std=gnu99   -I/root/ccan   -O3   -W -Wall -Wextra -Wno-unused-parameter -Wshadow   -DDEBUG   -g
+CFLAGS=-std=gnu99   -I$(CCAN_PATH)   -O3   -W -Wall -Wextra -Wno-unused-parameter -Wshadow   -DDEBUG   -g
 
-LIBS=-lpcap -L/root/ccan -lccan
+LIBS=-lpcap -L$(CCAN_PATH) -lccan
 SRCS=$(wildcard *.c)
 OBJS=$(patsubst %.c,%.o,${SRCS})
 
@@ -18,6 +18,9 @@ clean:
 	rm -rf *.o *.d *~
 
 %.o: %.c
+ifndef CCAN_PATH
+	$(error Please set $$CCAN_PATH)
+endif
 	$(COMPILE.c) -MMD -o $@ $<
 
 .PHONY: all clean
