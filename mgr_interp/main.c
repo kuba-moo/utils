@@ -55,7 +55,7 @@ static struct opt_table opts[] = {
 typedef int (*delay2file_fn)(struct delay *d, FILE *f);
 
 #define aggr(t) ((d->traces[t][i] - d->min_sample) / args.aggr)
-#define deaggr(i) ((d->min_sample + i) * args.aggr)
+#define deaggr(i) (d->min_sample + i * args.aggr)
 static int make_distr(struct delay *d, FILE *f)
 {
 	int i, t;

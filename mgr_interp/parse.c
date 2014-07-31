@@ -282,6 +282,7 @@ struct delay *read_delay(const char *fname)
 		return err_nret("Could not load packets: %s\n", errbuf);
 
 	d = talz(NULL, struct delay);
+	d->min_sample = -1;
 	d->fname = tal_strdup(d, fname);
 	sc_reset(&sc, d, pcap_src);
 
@@ -294,7 +295,8 @@ struct delay *read_delay(const char *fname)
 		d = NULL;
 	}
 
-	msg("\tLoaded %d samples, %d notifs\n", d->n_samples, d->n_notifs);
+	msg("\tLoaded %d samples [min:%d max:%d], %d notifs\n",
+	    d->n_samples, d->min_sample, d->max_sample, d->n_notifs);
 	pcap_close(pcap_src);
 
 	return d;
