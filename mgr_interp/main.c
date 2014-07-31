@@ -54,25 +54,27 @@ static struct opt_table opts[] = {
 
 typedef int (*delay2file_fn)(struct delay *d, FILE *f);
 
+#define aggr(t) ((d->traces[t][i] - d->min_sample) / args.aggr)
+#define deaggr(i) ((d->min_sample + i) * args.aggr)
 static int make_distr(struct delay *d, FILE *f)
 {
 	int i, t;
 	u32 *distr_table[3];
-	int table_size = 1 + d->max_sample / args.aggr;
+	int table_size = 1 + (d->max_sample - d->min_sample) / args.aggr;
 
 	for (t = 0; t < 3; t++) {
 		distr_table[t] =
 			calloc(table_size, sizeof(u32));
 
 		for (i = 0; i < d->n_samples; i++)
-			distr_table[t][d->traces[t][i] / args.aggr]++;
+			distr_table[t][aggr(t)]++;
 	}
 
 	for (i = 0; i < table_size; i++)
 		if (distr_table[0][i] ||
 		    distr_table[1][i] ||
 		    distr_table[2][i])
-			fprintf(f, "%d %u %u %u\n", i*args.aggr*8,
+			fprintf(f, "%d %u %u %u\n", deaggr(i)*8,
 				distr_table[0][i],
 				distr_table[1][i],
 				distr_table[2][i]);
@@ -85,7 +87,7 @@ static int make_distr(struct delay *d, FILE *f)
 
 static int make_hm(struct delay *d, FILE *f)
 {
-	int i;
+	int i, j;
 	u32 **hm_table;
 	int dim = 1 + (d->max_sample - d->min_sample) / args.aggr;
 
@@ -93,10 +95,14 @@ static int make_hm(struct delay *d, FILE *f)
 	for (i = 0; i < dim; i++)
 		hm_table[i] = calloc(dim, sizeof(**hm_table));
 
-#define aggr(t) ((d->traces[t][i] - d->min_sample) / args.aggr)
 	for (i = 0; i < d->n_samples; i++)
 		hm_table[aggr(0)][aggr(1)]++;
-#undef aggr
+
+	for (i = 0; i < dim; i++) {
+		for (j = 0; j < dim; j++)
+			printf("%d ", hm_table[i][j]);
+		putchar('\n');
+	}
 
 	for (i = 0; i < dim; i++)
 		free(hm_table[i]);
@@ -104,6 +110,8 @@ static int make_hm(struct delay *d, FILE *f)
 
 	return 0;
 }
+#undef aggr
+#undef deggr
 
 static inline int make_delay_file(struct delay *d, delay2file_fn make_single)
 {
