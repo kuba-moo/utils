@@ -56,6 +56,7 @@ static int make_distr(struct delay *d)
 {
 	int i, t;
 	u32 *distr_table[3];
+	int table_size = 1 + d->max_sample / args.aggr;
 	FILE *f;
 
 	f = fopen(d->fname, "w");
@@ -64,13 +65,13 @@ static int make_distr(struct delay *d)
 
 	for (t = 0; t < 3; t++) {
 		distr_table[t] =
-			calloc(1 + d->max_sample / args.aggr, sizeof(u32));
+			calloc(table_size, sizeof(u32));
 
 		for (i = 0; i < d->n_samples; i++)
 			distr_table[t][d->traces[t][i] / args.aggr]++;
 	}
 
-	for (i = 0; i < d->n_samples; i++)
+	for (i = 0; i < table_size; i++)
 		if (distr_table[0][i] ||
 		    distr_table[1][i] ||
 		    distr_table[2][i])
