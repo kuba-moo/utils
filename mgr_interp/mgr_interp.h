@@ -62,19 +62,29 @@ struct delay {
 	u32 n_samples;
 	u32 n_notifs;
 
-	u32 min_sample;
-	u32 max_sample;
+	u32 min_sample; /* min over all traces */
+	u32 max_sample; /* max over all traces */
 
 	char *fname;
 
 	u32 trace_size_;
-	u32 *traces[3];
+	struct trace {
+		u32 min;
+		u32 max;
+
+		u64 sum;
+		double mean;
+		u64 stddev_sum;
+		double stddev;
+
+		u32 *samples;
+	} t[3];
 };
 
 struct delay_bank {
-	int n;
+	int n; /* count(bank) */
 
-	u32 min_samples;
+	u32 min_samples; /* min(d->n_samples) */
 
 	struct delay **bank;
 };

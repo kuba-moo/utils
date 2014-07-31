@@ -77,24 +77,28 @@ static void delay_trace_grow(struct delay *d)
 	if (!d->trace_size_) {
 		d->trace_size_ = 2048;
 		for (i = 0; i < 3; i++)
-			d->traces[i] = tal_arr(d, u32, d->trace_size_);
+			d->t[i].samples = tal_arr(d, u32, d->trace_size_);
 	} else {
 		d->trace_size_ *= 2;
 		for (i = 0; i < 3; i++)
-			tal_resize(&d->traces[i], d->trace_size_);
+			tal_resize(&d->t[i].samples, d->trace_size_);
 	}
 }
 
 static inline void delay_push(struct delay *d, u32 t1, u32 t2, u32 t3)
 {
+	int t;
+	const u32 tmp_arr[] = { t1, t2, t3 };
+
 	assert(d->trace_size_ >= d->n_samples);
 
 	if (unlikely(d->trace_size_ == d->n_samples))
 		delay_trace_grow(d);
 
-	d->traces[0][d->n_samples] = t1;
-	d->traces[1][d->n_samples] = t2;
-	d->traces[2][d->n_samples] = t3;
+	for (t = 0; t < 3; t++) {
+		d->t[t].samples[d->n_samples] = tmp_arr[t];
+		d->t[t].sum += tmp_arr[t];
+	}
 	d->n_samples++;
 }
 
