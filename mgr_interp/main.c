@@ -23,6 +23,7 @@
 
 #include <dirent.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -51,13 +52,71 @@ static struct opt_table opts[] = {
 	OPT_ENDTABLE
 };
 
-struct delay_bank *open_many(const char *dir, const char *pfx)
+static int make_distr(struct delay *d)
+{
+	int i, t;
+	u32 *distr_table[3];
+	FILE *f;
+
+	f = fopen(d->fname, "w");
+	if (!f)
+		return perr_ret("Opening distr file to write failed");
+
+	for (t = 0; t < 3; t++) {
+		distr_table[t] =
+			calloc(1 + d->max_sample / args.aggr, sizeof(u32));
+
+		for (i = 0; i < d->n_samples; i++)
+			distr_table[t][d->traces[t][i] / args.aggr]++;
+	}
+
+	for (i = 0; i < d->n_samples; i++)
+		if (distr_table[0][i] ||
+		    distr_table[1][i] ||
+		    distr_table[2][i])
+			fprintf(f, "%d %u %u %u\n", i*8,
+				distr_table[0][i],
+				distr_table[1][i],
+				distr_table[2][i]);
+
+	for (t = 0; t < 3; t++)
+		free(distr_table[t]);
+
+	fclose(f);
+
+	return 0;
+}
+
+static int make_distributions(const char *dir, struct delay_bank *db)
+{
+	int i, res;
+	char *cwd;
+
+	res = mkdir(dir, 0777);
+	if (res && errno != EEXIST)
+		return perr_ret("Could not create distribution directory\n");
+
+	cwd = get_current_dir_name();
+	if (!cwd)
+		return perr_ret("Could not get current dir");
+	if (chdir(dir))
+		return perr_ret("Could not go to the result dir");
+
+	for (i = 0; i < db->n; i++)
+		make_distr(db->bank[i]);
+
+	chdir(cwd);
+	free(cwd);
+
+	return 0;
+}
+
+static struct delay_bank *open_many(const char *dir, const char *pfx)
 {
 	DIR *d;
 	struct dirent *ent;
 	int pfx_len = strlen(pfx);
 	char *cwd;
-	int n_res = 0;
 	struct delay_bank *rb;
 
 	cwd = get_current_dir_name();
@@ -77,17 +136,17 @@ struct delay_bank *open_many(const char *dir, const char *pfx)
 			continue;
 
 		if (rb->bank)
-			tal_resize(&rb->bank, ++n_res);
+			tal_resize(&rb->bank, ++rb->n);
 		else
-			rb->bank = tal_arr(rb, struct delay *, ++n_res);
+			rb->bank = tal_arr(rb, struct delay *, ++rb->n);
 
-		rb->bank[n_res - 1] = read_delay(ent->d_name);
-		if (!rb->bank[n_res - 1]) {
+		rb->bank[rb->n - 1] = read_delay(ent->d_name);
+		if (!rb->bank[rb->n - 1]) {
 			tal_free(rb);
 			rb = NULL;
 			break;
 		}
-		tal_steal(rb->bank, rb->bank[n_res - 1]);
+		tal_steal(rb->bank, rb->bank[rb->n - 1]);
 	}
 
 	closedir(d);
@@ -115,6 +174,9 @@ int main(int argc, char **argv)
 	db = open_many(args.res_dir, args.res_pfx);
 	if (!db)
 		return 1;
+
+	if (args.distr)
+		make_distributions(args.distr, db);
 
 	tal_free(db);
 

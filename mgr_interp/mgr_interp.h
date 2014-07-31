@@ -72,6 +72,8 @@ struct delay {
 };
 
 struct delay_bank {
+	int n;
+
 	struct delay **bank;
 };
 
