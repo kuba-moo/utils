@@ -181,14 +181,20 @@ static inline void sc_check_ifg(struct sample_context *sc)
 
 static inline void sc_save_deltas(struct sample_context *sc)
 {
-	u32 d1, d2, min;
+	u32 d1, d2, min, max;
 
 	d1 = sc->c.rx_ts[0] - sc->c.tx_ts;
 	d2 = sc->c.rx_ts[1] - sc->c.tx_ts;
 
 	min = d1 < d2 ? d1 : d2;
+	max = d1 < d2 ? d2 : d1;
 
 	delay_push(sc->d, d1, d2, min);
+
+	if (min < sc->d->min_sample)
+		sc->d->min_sample = min;
+	if (max > sc->d->max_sample)
+		sc->d->max_sample = max;
 }
 
 static void packet_cb(u_char *data, const struct pcap_pkthdr *header,

@@ -62,6 +62,9 @@ struct delay {
 	int n_samples;
 	int n_notifs;
 
+	u32 min_sample;
+	u32 max_sample;
+
 	char *fname;
 
 	int trace_size_;
