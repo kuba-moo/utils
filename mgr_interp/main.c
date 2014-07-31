@@ -100,8 +100,8 @@ static int make_hm(struct delay *d, FILE *f)
 
 	for (i = 0; i < dim; i++) {
 		for (j = 0; j < dim; j++)
-			printf("%d ", hm_table[i][j]);
-		putchar('\n');
+			fprintf(f, "%d ", hm_table[i][j]);
+		fputc('\n', f);
 	}
 
 	for (i = 0; i < dim; i++)
