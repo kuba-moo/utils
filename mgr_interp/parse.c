@@ -260,7 +260,7 @@ static void packet_cb(u_char *data, const struct pcap_pkthdr *header,
 		goto cb_out;
 	}
 
-	for (i = 0; i < FR_N_RES; i++) {
+	for (i = 0; i < FR_N_RES; i++, sc_next(sc)) {
 		sc_load_res(sc, dut1->r[i], dut2->r[i]);
 
 		if (dut1->r[i].tx_ts != dut2->r[i].tx_ts && !sc->is_notif) {
@@ -273,9 +273,9 @@ static void packet_cb(u_char *data, const struct pcap_pkthdr *header,
 			d->n_notifs++;
 		d->n_real_samples++;
 
-		if (sc_check_user_skip(sc))
-			continue;
 		if (sc_check_double_skip(sc))
+			continue;
+		if (sc_check_user_skip(sc))
 			continue;
 
 		sc_unwrap_time(sc);
@@ -283,8 +283,6 @@ static void packet_cb(u_char *data, const struct pcap_pkthdr *header,
 		sc_check_ifg(sc);
 
 		sc_save_deltas(sc);
-
-		sc_next(sc);
 	}
 
 cb_out:
