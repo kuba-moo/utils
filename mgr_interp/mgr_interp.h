@@ -30,12 +30,13 @@
 
 #define FBOLD "\e[1m"
 #define FNORM "\e[0m"
+#define FRED  "\e[31m"
 #define FGRN  "\e[32m"
 #define FYLW  "\e[33m"
 
 #define dbg(fmt...)  if (0) printf(fmt)
 #define msg(fmt...)  ({ if (!args.quiet) printf(fmt); })
-#define err(fmt...)  fprintf(stderr, fmt)
+#define err(fmt...)  fprintf(stderr, FRED fmt)
 #define err_ret(fmt...) ({ err(fmt); 1; })
 #define err_nret(fmt...) ({ err(fmt); NULL; })
 #define perr_ret(msg) ({ perror(msg); 1; })
