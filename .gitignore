@@ -3,5 +3,5 @@
 *.d
 
 # binaries
-mgr_interp
+mgr_interp/mgr_interp
 mgr_read_stat
