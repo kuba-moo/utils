@@ -319,8 +319,9 @@ struct delay *read_delay(const char *fname)
 		d = NULL;
 	}
 
-	msg(FGRN "\tLoaded %d samples [min:%d max:%d], %d notifs\n" FNORM,
-	    d->n_samples, d->min_sample, d->max_sample, d->n_notifs);
+	msg(FGRN "\tLoaded %d samples [real:%d notif:%d min:%d max:%d]\n" FNORM,
+	    d->n_samples, d->n_real_samples, d->n_notifs,
+	    d->min_sample, d->max_sample);
 	pcap_close(pcap_src);
 
 	return d;
