@@ -253,6 +253,8 @@ int main(int argc, char **argv)
 
 	if (!args.res_pfx)
 		return err_ret("Please specify result file name prefix\n");
+	if (!args.ifg)
+		err("Consider setting ifg to improve parsing accuracy\n");
 
 	db = open_many(args.res_dir, args.res_pfx);
 	if (!db)
