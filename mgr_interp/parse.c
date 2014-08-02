@@ -95,10 +95,8 @@ static inline void delay_push(struct delay *d, u32 t1, u32 t2, u32 t3)
 	if (unlikely(d->trace_size_ == d->n_samples))
 		delay_trace_grow(d);
 
-	for (t = 0; t < 3; t++) {
+	for (t = 0; t < 3; t++)
 		d->t[t].samples[d->n_samples] = tmp_arr[t];
-		d->t[t].sum += tmp_arr[t];
-	}
 	d->n_samples++;
 }
 

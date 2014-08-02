@@ -53,6 +53,7 @@ struct cmdline_args {
 
 	char *distr;
 	char *hm;
+	char *stats;
 	int aggr;
 };
 
@@ -65,21 +66,26 @@ struct delay {
 	u32 min_sample; /* min over all traces */
 	u32 max_sample; /* max over all traces */
 
+	double corr;
+
 	char *fname;
 
 	u32 trace_size_;
 	struct trace {
-		u32 min;
-		u32 max;
-
 		u64 sum;
 		double mean;
-		u64 stddev_sum;
-		double stddev;
+		double stdev_sum;
+		double stdev;
 
 		u32 *samples;
 	} t[3];
 };
+
+#define for_each_trace(_delay_, _trace_)			\
+	for (u32 macro_t_ = 0;					\
+	     _trace_ = &_delay_->t[macro_t_], macro_t_ < 3;	\
+	     macro_t_++)					\
+
 
 struct delay_bank {
 	int n; /* count(bank) */
@@ -90,5 +96,9 @@ struct delay_bank {
 };
 
 struct delay *read_delay(const char *fname);
+
+void calc_mean(struct trace *t, u32 n_samples);
+void calc_stdev(struct trace *t, u32 n_samples);
+void calc_corr(struct delay *d);
 
 #endif

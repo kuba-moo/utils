@@ -45,6 +45,8 @@ static struct opt_table opts[] = {
 		     &args.distr, "dump distributions to given directory"),
 	OPT_WITH_ARG("-H|--heatmap <dir>", opt_set_charp, NULL,
 		     &args.hm, "dump heatmaps to given directory"),
+	OPT_WITH_ARG("-S|--stats <dir>", opt_set_charp, NULL,
+		     &args.stats, "write mean,stdev,correlation to given directory"),
 	OPT_WITH_ARG("-n|--aggregate <n>", opt_set_intval, NULL,
 		     &args.aggr, "aggregation for simple statistics (bucket size)"),
 	OPT_WITHOUT_ARG("-q|--quiet", opt_set_bool,
@@ -110,6 +112,18 @@ static int make_hm(struct delay *d, FILE *f)
 
 	return 0;
 }
+
+static int make_stats(struct delay *d, FILE *f)
+{
+	struct trace *t;
+
+	for_each_trace(d, t)
+		fprintf(f, "%lf %lf\n", t->mean, t->stdev);
+	fprintf(f, "%lf\n", d->corr);
+
+	return 0;
+}
+
 #undef aggr
 #undef deggr
 
@@ -154,55 +168,76 @@ static int make_per_delay(const char *dir, struct delay_bank *db,
 	return 0;
 }
 
-static struct delay_bank *open_many(const char *dir, const char *pfx)
+static void calc_all_stats(struct delay *d)
 {
-	DIR *d;
+	int t;
+
+	for (t = 0; t < 3; t++) {
+		calc_mean(&d->t[t], d->n_samples);
+		calc_stdev(&d->t[t], d->n_samples);
+
+		msg("\tTrace %d: mean %lf stdev %lf\n",
+		    t, d->t[t].mean, d->t[t].stdev);
+	}
+	calc_corr(d);
+	msg("\tCorrelation: %lf\n", d->corr);
+}
+
+static struct delay_bank *open_many(const char *dname, const char *pfx)
+{
+	DIR *dir;
 	struct dirent *ent;
 	int pfx_len = strlen(pfx);
 	char *cwd;
-	struct delay_bank *rb;
+	struct delay_bank *db;
+	struct delay *d;
 
 	cwd = get_current_dir_name();
 	if (!cwd)
 		return perr_nret("Could not get current dir");
-	if (chdir(dir))
+	if (chdir(dname))
 		return perr_nret("Could not go to the result dir");
 
-	d = opendir(".");
-	if (!d)
+	dir = opendir(".");
+	if (!dir)
 		return perr_nret("Could not open the result dir");
 
-	rb = talz(NULL, struct delay_bank);
+	db = talz(NULL, struct delay_bank);
+	db->min_samples = -1;
 
-	while ((ent = readdir(d))) {
+	while ((ent = readdir(dir))) {
 		if (strncmp(ent->d_name, pfx, pfx_len))
 			continue;
 
-		if (rb->bank)
-			tal_resize(&rb->bank, ++rb->n);
+		if (db->bank)
+			tal_resize(&db->bank, ++db->n);
 		else
-			rb->bank = tal_arr(rb, struct delay *, ++rb->n);
+			db->bank = tal_arr(db, struct delay *, ++db->n);
 
-		rb->bank[rb->n - 1] = read_delay(ent->d_name);
-		if (!rb->bank[rb->n - 1]) {
-			tal_free(rb);
-			rb = NULL;
+		d = read_delay(ent->d_name);
+		if (!d) {
+			tal_free(db);
+			db = NULL;
 			break;
 		}
-		if (!rb->min_samples ||
-		    rb->min_samples > rb->bank[rb->n - 1]->n_samples)
-			rb->min_samples = rb->bank[rb->n - 1]->n_samples;
-		tal_steal(rb->bank, rb->bank[rb->n - 1]);
+
+		if (db->min_samples > d->n_samples)
+			db->min_samples = d->n_samples;
+
+		calc_all_stats(d);
+
+		tal_steal(db->bank, d);
+		db->bank[db->n - 1] = d;
 	}
 	msg("Done reading, every run has at least %u samples\n",
-	    rb->min_samples);
+	    db->min_samples);
 
-	closedir(d);
+	closedir(dir);
 
 	chdir(cwd);
 	free(cwd);
 
-	return rb;
+	return db;
 }
 
 int main(int argc, char **argv)
@@ -227,6 +262,8 @@ int main(int argc, char **argv)
 		make_per_delay(args.distr, db, make_distr);
 	if (args.hm)
 		make_per_delay(args.hm, db, make_hm);
+	if (args.stats)
+		make_per_delay(args.stats, db, make_stats);
 
 	tal_free(db);
 

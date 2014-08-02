@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=-std=gnu99   -I$(CCAN_PATH)   -O3   -W -Wall -Wextra -Wno-unused-parameter -Wshadow   -DDEBUG   -g
 
-LIBS=-lpcap -L$(CCAN_PATH) -lccan
+LIBS=-lm -lpcap -L$(CCAN_PATH) -lccan
 SRCS=$(wildcard *.c)
 OBJS=$(patsubst %.c,%.o,${SRCS})
 
