@@ -84,6 +84,9 @@ struct delay {
 		double stdev_sum;
 		double stdev;
 
+		double gumbel_u;
+		double gumbel_b;
+
 		u32 *samples;
 	} t[3];
 };
@@ -106,6 +109,7 @@ struct delay *read_delay(const char *fname);
 
 void calc_mean(struct trace *t, u32 n_samples);
 void calc_stdev(struct trace *t, u32 n_samples);
+void calc_gumbel(struct trace *t, u32 n_samples);
 void calc_corr(struct delay *d);
 
 #endif

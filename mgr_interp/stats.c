@@ -105,3 +105,58 @@ void calc_corr(struct delay *d)
 
 	free(darr);
 }
+
+static int cmp_u32(const void *a1, const void *a2)
+{
+	const u32 *u1 = a1, *u2 = a2;
+	return *u1 - *u2;
+}
+
+void calc_gumbel(struct trace *t, u32 n_samples)
+{
+	u32 i;
+	u32 b, b_s = 6;
+	double *darr;
+	u32 *marr;
+	u32 arr_len = n_samples >> b_s;
+	size_t marr_size = arr_len * sizeof(*marr);
+	const size_t darr_size = arr_len * sizeof(*darr);
+
+	marr = memalign(VEC_SZ, marr_size);
+	darr = memalign(VEC_SZ, darr_size);
+
+	while (true) {
+		b = 1 << b_s;
+
+		if (n_samples >> b_s < 32)
+			break;
+
+		arr_len = n_samples >> b_s;
+		marr_size = arr_len * sizeof(*marr);
+		memset(marr, 0, marr_size);
+
+		for (i = 0; i < arr_len << b_s; i++)
+			if (t->samples[i] > marr[i >> b_s])
+				marr[i >> b_s] = t->samples[i];
+
+		/* Do Q-Q */
+		qsort(marr, arr_len, sizeof(*marr), cmp_u32);
+
+		for (i = 0; i < arr_len; i++)
+			darr[i] = -log(-log(1 - (double)i / (n_samples / (b + 1))));
+
+
+		break;
+
+		/* If Chi^2 < 0.05 {
+		           save params;
+		           break;
+		   }
+		*/
+
+		b_s <<= 1;
+	}
+
+	free(marr);
+	free(darr);
+}

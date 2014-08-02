@@ -179,6 +179,7 @@ static void calc_all_stats(struct delay *d)
 	for (t = 0; t < 3; t++) {
 		calc_mean(&d->t[t], d->n_samples);
 		calc_stdev(&d->t[t], d->n_samples);
+		calc_gumbel(&d->t[t], d->n_samples);
 
 		msg("\tTrace %d: mean %lf stdev %lf\n",
 		    t, d->t[t].mean, d->t[t].stdev);
