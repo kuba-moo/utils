@@ -178,7 +178,7 @@ static inline void sc_check_ifg(struct sample_context *sc)
 
 	if (unlikely(expected_ts_diff < -0x80 ||
 		     expected_ts_diff >  0x80)) {
-		err("Broken tx_ts\n");
+		err("\tBroken tx_ts %" PRId64 " [pair %u]\n", expected_ts_diff, sc->d->n_samples);
 	}
 }
 
@@ -278,7 +278,7 @@ struct delay *read_delay(const char *fname)
 	char errbuf[PCAP_ERRBUF_SIZE];
 	struct sample_context sc;
 
-	msg("Loading file %s\n", fname);
+	msg(FBOLD "Loading file %s\n" FNORM FYLW, fname);
 
 	pcap_src = pcap_open_offline(fname, errbuf);
 	if (!pcap_src)
@@ -298,7 +298,7 @@ struct delay *read_delay(const char *fname)
 		d = NULL;
 	}
 
-	msg("\tLoaded %d samples [min:%d max:%d], %d notifs\n",
+	msg(FGRN "\tLoaded %d samples [min:%d max:%d], %d notifs\n" FNORM,
 	    d->n_samples, d->min_sample, d->max_sample, d->n_notifs);
 	pcap_close(pcap_src);
 

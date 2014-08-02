@@ -24,11 +24,14 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <inttypes.h>
 
 #include <ccan/short_types/short_types.h>
 
 #define FBOLD "\e[1m"
 #define FNORM "\e[0m"
+#define FGRN  "\e[32m"
+#define FYLW  "\e[33m"
 
 #define dbg(fmt...)  if (0) printf(fmt)
 #define msg(fmt...)  ({ if (!args.quiet) printf(fmt); })
