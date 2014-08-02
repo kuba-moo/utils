@@ -152,11 +152,7 @@ static inline int sc_check_user_skip(struct sample_context *sc)
 
 static inline int sc_check_double_skip(const struct sample_context *sc)
 {
-	/* This check is probably unnecessary */
-	if (likely(!sc->is_notif))
-		return 0;
-
-	if (!sc->c.tx_ts) {
+	if (unlikely(!sc->c.tx_ts)) {
 		if (!sc->is_first)
 			err("\tFIXME: Double skip, ignoring sample\n");
 
