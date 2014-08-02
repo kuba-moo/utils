@@ -5,7 +5,9 @@ LIBS=-lpcap -L$(CCAN_PATH) -lccan
 SRCS=$(wildcard *.c)
 OBJS=$(patsubst %.c,%.o,${SRCS})
 
-MAKEDEPEND = gcc -M $(CPPFLAGS) -o $*.d $<
+ifndef CCAN_PATH
+  $(error Please set $$CCAN_PATH)
+endif
 
 include $(wildcard *.d)
 
@@ -18,9 +20,6 @@ clean:
 	rm -rf *.o *.d *~
 
 %.o: %.c
-ifndef CCAN_PATH
-	$(error Please set $$CCAN_PATH)
-endif
 	$(COMPILE.c) -MMD -o $@ $<
 
 .PHONY: all clean
