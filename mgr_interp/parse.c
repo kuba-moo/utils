@@ -133,9 +133,7 @@ static inline int sc_check_double_skip(const struct sample_context *sc)
 		return 0;
 
 	if (!sc->c.tx_ts) {
-		if (sc->is_first)
-			pinf("\tDouble skip, ignoring first sample");
-		else
+		if (!sc->is_first)
 			err("\tFIXME: Double skip, ignoring sample\n");
 
 		return 1;
@@ -167,7 +165,7 @@ static inline void sc_check_ifg(struct sample_context *sc)
 	if (!args.ifg || sc->is_first)
 		return;
 
-	expected_ts_diff = sc->p.tx_ts + args.ifg - sc->c.tx_ts;
+	expected_ts_diff = sc->c.tx_ts - sc->p.tx_ts - args.ifg;
 
 	if (unlikely(expected_ts_diff < -0x900 &&
 		     expected_ts_diff > -0x1100)) {
@@ -176,9 +174,9 @@ static inline void sc_check_ifg(struct sample_context *sc)
 		expected_ts_diff = sc->p.tx_ts + args.ifg - sc->c.tx_ts;
 	}
 
-	if (unlikely(expected_ts_diff < -0x80 ||
-		     expected_ts_diff >  0x80)) {
-		err("\tBroken tx_ts %" PRId64 " [pair %u]\n", expected_ts_diff, sc->d->n_samples);
+	if (unlikely(expected_ts_diff < -0x100 ||
+		     expected_ts_diff >  0x100)) {
+		msg("\tBroken tx_ts %" PRId64 " [pair %u]\n", expected_ts_diff, sc->d->n_samples);
 	}
 }
 
