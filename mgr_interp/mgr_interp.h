@@ -51,6 +51,8 @@ struct cmdline_args {
 	bool quiet;
 
 	int ifg;
+	unsigned skip_notif;
+	unsigned skip_begin;
 	char *res_pfx;
 	char *res_dir;
 
@@ -63,7 +65,8 @@ struct cmdline_args {
 extern struct cmdline_args args;
 
 struct delay {
-	u32 n_samples;
+	u32 n_real_samples; /* # of samples in pcap file */
+	u32 n_samples; /* # of samples loaded to traces (e.g. excl. skips) */
 	u32 n_notifs;
 
 	u32 min_sample; /* min over all traces */

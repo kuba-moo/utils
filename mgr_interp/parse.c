@@ -64,6 +64,8 @@ struct sample {
 struct sample_context {
 	pcap_t *pcap;
 
+	u32 skip_after_notif;
+
 	bool is_first;
 	bool is_notif;
 	struct sample c, p; /* current and previos sample. */
@@ -115,6 +117,9 @@ static inline void sc_next(struct sample_context *sc)
 	sc->p = sc->c;
 
 	sc->is_notif = sc->is_first = false;
+
+	if (unlikely(sc->skip_after_notif))
+		sc->skip_after_notif--;
 }
 
 static inline void sc_load_res(struct sample_context *sc,
@@ -127,8 +132,27 @@ static inline void sc_load_res(struct sample_context *sc,
 	sc->c.rx_ts[1] = ntohl(r2.rx_ts);
 }
 
+static inline int sc_check_user_skip(struct sample_context *sc)
+{
+	/* n_real_samples is increamented before this func hence '<=' */
+	if (unlikely(sc->d->n_real_samples <= args.skip_begin))
+		return 1;
+
+	if (sc->is_notif) {
+		if (sc->skip_after_notif)
+			err("\tNotif on notif!!\n");
+		sc->skip_after_notif = args.skip_notif;
+	}
+
+	if (unlikely(sc->skip_after_notif))
+		return 1;
+
+	return 0;
+}
+
 static inline int sc_check_double_skip(const struct sample_context *sc)
 {
+	/* This check is probably unnecessary */
 	if (likely(!sc->is_notif))
 		return 0;
 
@@ -251,7 +275,10 @@ static void packet_cb(u_char *data, const struct pcap_pkthdr *header,
 
 		if (sc->is_notif)
 			d->n_notifs++;
+		d->n_real_samples++;
 
+		if (sc_check_user_skip(sc))
+			continue;
 		if (sc_check_double_skip(sc))
 			continue;
 
