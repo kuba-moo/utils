@@ -117,6 +117,9 @@ struct delay_bank {
 	struct delay **bank;
 };
 
+extern float chi2_table[];
+extern unsigned long chi2_table_len;
+
 struct delay *read_delay(const char *fname);
 
 void calc_distr(struct trace *t);

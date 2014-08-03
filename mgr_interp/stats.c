@@ -324,8 +324,6 @@ static void fit_frechet(struct trace *t, struct distribution *distr, u32 n)
 	t->distr_a = a;
 }
 
-#include "chi_2.h"
-
 bool chi_2_test(struct trace *t, u32 n_maxes,
 		struct distribution *distr, u32 n)
 {
