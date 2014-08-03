@@ -60,57 +60,61 @@ static struct opt_table opts[] = {
 
 typedef int (*delay2file_fn)(struct delay *d, FILE *f);
 
-#define aggr(_t_) ((d->t[_t_].samples[i] - d->min_sample) / args.aggr)
-#define deaggr(_i_) (d->min_sample + _i_ * args.aggr)
 static int make_distr(struct delay *d, FILE *f)
 {
-	u32 i, t;
-	u32 *distr_table[3];
-	u32 table_size = 1 + (d->max_sample - d->min_sample) / args.aggr;
+	u32 i;
+	u32 sums[3];
+	u32 val = d->t[2].min; /* t2 is min(t0,t1) so it has the global min */
+	u32 val_end = d->t[0].max > d->t[1].max ? d->t[0].max : d->t[1].max;
+	struct distribution *di[3], *di_end[3];
 
-	for (t = 0; t < 3; t++) {
-		distr_table[t] =
-			calloc(table_size, sizeof(u32));
-
-		for (i = 0; i < d->n_samples; i++)
-			distr_table[t][aggr(t)]++;
+	for (i = 0; i < 3; i++) {
+		di[i] = d->t[i].distr;
+		di_end[i] = d->t[i].distr + tal_count(d->t[i].distr);
 	}
 
-	for (i = 0; i < table_size; i++)
-		if (distr_table[0][i] ||
-		    distr_table[1][i] ||
-		    distr_table[2][i])
-			fprintf(f, "%d %u %u %u\n", deaggr(i)*8,
-				distr_table[0][i],
-				distr_table[1][i],
-				distr_table[2][i]);
+	while (val <= val_end) {
+		memset(sums, 0, sizeof(sums));
 
-	for (t = 0; t < 3; t++)
-		free(distr_table[t]);
+		for (i = 0; i < 3; i++)
+			while (di[i] < di_end[i] &&
+			       di[i]->val < val + args.aggr)
+				sums[i] += (di[i]++)->cnt;
+
+		if (sums[0] || sums[1] ||sums[2])
+			fprintf(f, "%d %u %u %u\n", val * 8,
+				sums[0], sums[1], sums[2]);
+
+		val += args.aggr;
+	}
 
 	return 0;
 }
 
+#define aggr(_t_) ((d->t[_t_].samples[i] - d->t[_t_].min) / args.aggr)
 static int make_hm(struct delay *d, FILE *f)
 {
 	u32 i, j;
 	u32 **hm_table;
-	u32 dim = 1 + (d->max_sample - d->min_sample) / args.aggr;
+	u32 dim[2];
 
-	hm_table = calloc(dim, sizeof(*hm_table));
-	for (i = 0; i < dim; i++)
-		hm_table[i] = calloc(dim, sizeof(**hm_table));
+	dim[0] = 1 + (d->t[0].max - d->t[0].min) / args.aggr;
+	dim[1] = 1 + (d->t[1].max - d->t[1].min) / args.aggr;
+
+	hm_table = calloc(dim[0], sizeof(*hm_table));
+	for (i = 0; i < dim[0]; i++)
+		hm_table[i] = calloc(dim[1], sizeof(**hm_table));
 
 	for (i = 0; i < d->n_samples; i++)
 		hm_table[aggr(0)][aggr(1)]++;
 
-	for (i = 0; i < dim; i++) {
-		for (j = 0; j < dim; j++)
+	for (i = 0; i < dim[0]; i++) {
+		for (j = 0; j < dim[1]; j++)
 			fprintf(f, "%d ", hm_table[i][j]);
 		fputc('\n', f);
 	}
 
-	for (i = 0; i < dim; i++)
+	for (i = 0; i < dim[0]; i++)
 		free(hm_table[i]);
 	free(hm_table);
 
@@ -174,15 +178,17 @@ static int make_per_delay(const char *dir, struct delay_bank *db,
 
 static void calc_all_stats(struct delay *d)
 {
-	int t;
+	struct trace *t;
+	int i;
 
-	for (t = 0; t < 3; t++) {
-		calc_mean(&d->t[t], d->n_samples);
-		calc_stdev(&d->t[t], d->n_samples);
-		calc_gumbel(&d->t[t], d->n_samples);
+	for_each_trace_i(d, t, i) {
+		calc_distr(t);
+		calc_mean(t, d->n_samples);
+		calc_stdev(t, d->n_samples);
+		calc_gumbel(t, d->n_samples);
 
-		msg("\tTrace %d: mean %lf stdev %lf\n",
-		    t, d->t[t].mean, d->t[t].stdev);
+		msg("\tTrace %d: min %u max %u mean %lf stdev %lf\n",
+		    i, t->min, t->max, t->mean, t->stdev);
 	}
 	calc_corr(d);
 	msg("\tCorrelation: %lf\n", d->corr);

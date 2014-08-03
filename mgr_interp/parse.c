@@ -90,7 +90,8 @@ static void delay_trace_grow(struct delay *d)
 
 static inline void delay_push(struct delay *d, u32 t1, u32 t2, u32 t3)
 {
-	int t;
+	int i;
+	struct trace *t;
 	const u32 tmp_arr[] = { t1, t2, t3 };
 
 	assert(d->trace_size_ >= d->n_samples);
@@ -98,8 +99,14 @@ static inline void delay_push(struct delay *d, u32 t1, u32 t2, u32 t3)
 	if (unlikely(d->trace_size_ == d->n_samples))
 		delay_trace_grow(d);
 
-	for (t = 0; t < 3; t++)
-		d->t[t].samples[d->n_samples] = tmp_arr[t];
+	for_each_trace_i(d, t, i) {
+		t->samples[d->n_samples] = tmp_arr[i];
+
+		if (tmp_arr[i] < t->min)
+			t->min = tmp_arr[i];
+		if (tmp_arr[i] > t->max)
+			t->max = tmp_arr[i];
+	}
 	d->n_samples++;
 }
 
@@ -202,20 +209,13 @@ static inline void sc_check_ifg(struct sample_context *sc)
 
 static inline void sc_save_deltas(struct sample_context *sc)
 {
-	u32 d1, d2, min, max;
+	u32 d1, d2, min;
 
 	d1 = sc->c.rx_ts[0] - sc->c.tx_ts;
 	d2 = sc->c.rx_ts[1] - sc->c.tx_ts;
-
 	min = d1 < d2 ? d1 : d2;
-	max = d1 < d2 ? d2 : d1;
 
 	delay_push(sc->d, d1, d2, min);
-
-	if (min < sc->d->min_sample)
-		sc->d->min_sample = min;
-	if (max > sc->d->max_sample)
-		sc->d->max_sample = max;
 }
 
 static void packet_cb(u_char *data, const struct pcap_pkthdr *header,
@@ -293,6 +293,7 @@ struct delay *read_delay(const char *fname)
 {
 	int res;
 	struct delay *d;
+	struct trace *t;
 	pcap_t *pcap_src = NULL;
 	char errbuf[PCAP_ERRBUF_SIZE];
 	struct sample_context sc;
@@ -304,8 +305,11 @@ struct delay *read_delay(const char *fname)
 		return err_nret("Could not load packets: %s\n", errbuf);
 
 	d = talz(NULL, struct delay);
-	d->min_sample = -1;
 	d->fname = tal_strdup(d, fname);
+	for_each_trace(d, t) {
+		t->d = d;
+		t->min = -1;
+	}
 	sc_reset(&sc, d, pcap_src);
 
 	res = pcap_loop(pcap_src, PCAP_CNT_INF, packet_cb, (void *)&sc);
@@ -317,9 +321,8 @@ struct delay *read_delay(const char *fname)
 		d = NULL;
 	}
 
-	msg(FGRN "\tLoaded %d samples [real:%d notif:%d min:%d max:%d]\n" FNORM,
-	    d->n_samples, d->n_real_samples, d->n_notifs,
-	    d->min_sample, d->max_sample);
+	msg(FGRN "\tLoaded %d samples [real:%d notif:%d]\n" FNORM,
+	    d->n_samples, d->n_real_samples, d->n_notifs);
 	pcap_close(pcap_src);
 
 	return d;

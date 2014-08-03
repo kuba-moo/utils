@@ -70,15 +70,17 @@ struct delay {
 	u32 n_samples; /* # of samples loaded to traces (e.g. excl. skips) */
 	u32 n_notifs;
 
-	u32 min_sample; /* min over all traces */
-	u32 max_sample; /* max over all traces */
-
 	double corr;
 
 	char *fname;
 
 	u32 trace_size_;
 	struct trace {
+		struct delay *d;
+
+		u32 min;
+		u32 max;
+
 		u64 sum;
 		double mean;
 		double stdev_sum;
@@ -87,6 +89,11 @@ struct delay {
 		double gumbel_u;
 		double gumbel_b;
 
+		struct distribution {
+			u32 val;
+			u32 cnt;
+		} *distr;
+
 		u32 *samples;
 	} t[3];
 };
@@ -94,8 +101,12 @@ struct delay {
 #define for_each_trace(_delay_, _trace_)			\
 	for (u32 macro_t_ = 0;					\
 	     _trace_ = &_delay_->t[macro_t_], macro_t_ < 3;	\
-	     macro_t_++)					\
+	     macro_t_++)
 
+#define for_each_trace_i(_delay_, _trace_, _i_)		\
+	for (_i_ = 0;					\
+	     _trace_ = &_delay_->t[_i_], _i_ < 3;	\
+	     _i_++)
 
 struct delay_bank {
 	int n; /* count(bank) */
@@ -107,6 +118,7 @@ struct delay_bank {
 
 struct delay *read_delay(const char *fname);
 
+void calc_distr(struct trace *t);
 void calc_mean(struct trace *t, u32 n_samples);
 void calc_stdev(struct trace *t, u32 n_samples);
 void calc_gumbel(struct trace *t, u32 n_samples);

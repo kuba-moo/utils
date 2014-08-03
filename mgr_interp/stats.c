@@ -43,6 +43,31 @@ static double table_sum(double *darr, u32 n)
 	return darr[0];
 }
 
+
+void calc_distr(struct trace *t)
+{
+	int i;
+	u32 *table;
+	u32 table_size = t->max - t->min + 1;
+	u32 n_distinct = 0;
+	const int n_samples = t->d->n_samples;
+
+	table = calloc(table_size, sizeof(*table));
+	for (i = 0; i < n_samples; i++)
+		if (!table[t->samples[i] - t->min]++)
+			n_distinct++;
+
+	t->distr = tal_arr(t->d, struct distribution, n_distinct);
+	for (i = table_size - 1; i >= 0; i--)
+		if (table[i]) {
+			n_distinct--;
+			t->distr[n_distinct].val = i + t->min;
+			t->distr[n_distinct].cnt = table[i];
+		}
+
+	free(table);
+}
+
 void calc_mean(struct trace *t, u32 n_samples)
 {
 	u32 i;
