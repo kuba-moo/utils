@@ -43,29 +43,42 @@ static double table_sum(double *darr, u32 n)
 	return darr[0];
 }
 
-
-void calc_distr(struct trace *t)
+static struct distribution *calc_distr_(const u32 *samples, const int n,
+					const u32 min, const u32 max)
 {
 	int i;
 	u32 *table;
-	u32 table_size = t->max - t->min + 1;
+	u32 table_size = max - min + 1;
 	u32 n_distinct = 0;
-	const int n_samples = t->d->n_samples;
+	struct distribution *distr;
 
 	table = calloc(table_size, sizeof(*table));
-	for (i = 0; i < n_samples; i++)
-		if (!table[t->samples[i] - t->min]++)
+	for (i = 0; i < n; i++)
+		if (!table[samples[i] - min]++)
 			n_distinct++;
 
-	t->distr = tal_arr(t->d, struct distribution, n_distinct);
+	distr = tal_arr(NULL, struct distribution, n_distinct);
 	for (i = table_size - 1; i >= 0; i--)
 		if (table[i]) {
 			n_distinct--;
-			t->distr[n_distinct].val = i + t->min;
-			t->distr[n_distinct].cnt = table[i];
+			distr[n_distinct].val = i + min;
+			distr[n_distinct].cnt = table[i];
 		}
 
+	assert(!n_distinct);
+
 	free(table);
+
+	return distr;
+}
+
+void calc_distr(struct trace *t)
+{
+	struct distribution *distr =
+		calc_distr_(t->samples, t->d->n_samples, t->min, t->max);
+
+	tal_steal(t->d, distr);
+	t->distr = distr;
 }
 
 void calc_mean(struct trace *t, u32 n_samples)
@@ -137,26 +150,223 @@ static int cmp_u32(const void *a1, const void *a2)
 	return *u1 - *u2;
 }
 
+void file_dump(struct distribution *distr, u32 n)
+{
+	u32 i;
+	FILE *f;
+	static char name[] = "tr0";
+
+	f = fopen(name, "w");
+	for (i = 0; i < n; i++)
+		fprintf(f, "%u %u\n", distr[i].val, distr[i].cnt);
+	fclose(f);
+
+	name[2]++;
+}
+
+static inline double f(double x, double a, double s, double m)
+{
+	const double scaled = (x - m) / s;
+	const double powed = pow(scaled, -a);
+	double ret = a/s * powed/scaled * exp(-powed);
+
+	return ret;
+}
+
+static double frechet(struct distribution *distr, u32 n,
+		      double a, double s, double m)
+{
+	u32 i;
+	double sum = 0;
+
+	for (i = n; i > 0; i--)
+		sum += distr[i-1].cnt * log(f(distr[i-1].val, a, s, m));
+
+	return sum;
+}
+
+static void shake_m(struct trace *t, struct distribution *distr, u32 n,
+		    double a, double s, double *m_, const u32 max_retry)
+{
+	double m = *m_;
+	u32 retry = 0;
+	double delta = 4;
+	double old = frechet(distr, n, a, s, m);
+	double less, more;
+
+	less = frechet(distr, n, a, s, m - delta);
+	more = frechet(distr, n, a, s, m + delta);
+
+	while (retry < max_retry) {
+		if (old < less) {
+			dbg("r%02d m=%lf \t%le %+le %+le\n", retry, m, old, less - old, more - old);
+			m -= delta;
+			more = old;
+			old = less;
+			less = frechet(distr, n, a, s, m - delta);
+		} else if (old < more) {
+			dbg("r%02d m=%lf \t%le %+le %+le\n", retry, m, old, less - old, more - old);
+			m += delta;
+			less = old;
+			old = more;
+			more = frechet(distr, n, a, s, m + delta);
+		} else {
+			retry++;
+			delta /= 2;
+
+			less = frechet(distr, n, a, s, m - delta);
+			more = frechet(distr, n, a, s, m + delta);
+		}
+	}
+
+	*m_ = m;
+}
+
+static bool shake_a(struct distribution *distr, u32 n,
+		    double *a_, double s, double m, const u32 max_retry)
+{
+	double a = *a_;
+	bool ret;
+	u32 retry = 0;
+	double delta = 1;
+	double old = frechet(distr, n, a, s, m);
+	double less, more;
+
+	less = frechet(distr, n, a - delta, s, m);
+	more = frechet(distr, n, a + delta, s, m);
+
+	while (retry < max_retry) {
+		if (old < less && a - delta > 0.0000001) {
+			dbg("r%02d a=%lf \t%le %+le %+le\n", retry, a, old, less - old, more - old);
+			a -= delta;
+			more = old;
+			old = less;
+			less = frechet(distr, n, a - delta, s, m);
+		} else if (old < more) {
+			dbg("r%02d a=%lf \t%le %+le %+le\n", retry, a, old, less - old, more - old);
+			a += delta;
+			less = old;
+			old = more;
+			more = frechet(distr, n, a + delta, s, m);
+		} else {
+			retry++;
+			delta /= 2;
+
+			less = frechet(distr, n, a - delta, s, m);
+			more = frechet(distr, n, a + delta, s, m);
+		}
+	}
+
+	ret = a != *a_;
+	*a_ = a;
+
+	return ret;
+}
+
+static bool shake_s(struct distribution *distr, u32 n,
+		    double a, double *s_, double m, const u32 max_retry)
+{
+	double s = *s_;
+	bool ret;
+	u32 retry = 0;
+	double delta = 1;
+	double old = frechet(distr, n, a, s, m);
+	double less, more;
+
+	less = frechet(distr, n, a, s - delta, m);
+	more = frechet(distr, n, a, s + delta, m);
+
+	while (retry < max_retry) {
+		if (old < less && s - delta > 0.0000001) {
+			dbg("r%02d s=%lf \t%le %+le %+le\n", retry, s, old, less - old, more - old);
+			s -= delta;
+			more = old;
+			old = less;
+			less = frechet(distr, n, a, s - delta, m);
+		} else if (old < more) {
+			dbg("r%02d s=%lf \t%le %+le %+le\n", retry, s, old, less - old, more - old);
+			s += delta;
+			less = old;
+			old = more;
+			more = frechet(distr, n, a, s + delta, m);
+		} else {
+			retry++;
+			delta /= 2;
+
+			less = frechet(distr, n, a, s - delta, m);
+			more = frechet(distr, n, a, s + delta, m);
+		}
+	}
+
+	ret = s != *s_;
+	*s_ = s;
+	return ret;
+}
+
+static void fit_frechet(struct trace *t, struct distribution *distr, u32 n)
+{
+	double a = 3, s = t->max - t->min, m = t->min;
+	u32 retry = 2;
+
+	while (true) {
+		shake_m(t, distr, n, a, s, &m, retry);
+		if (shake_a(distr, n, &a, s, m, retry))
+			continue;
+		if (shake_s(distr, n, a, &s, m, retry))
+			continue;
+
+		if (++retry > 5)
+			break;
+	}
+
+	t->distr_m = m;
+	t->distr_s = s;
+	t->distr_a = a;
+}
+
+#include "chi_2.h"
+
+bool chi_2_test(struct trace *t, u32 n_maxes,
+		struct distribution *distr, u32 n)
+{
+	const u32 b_cnt = n_maxes/30;
+	const u32 b_width = (distr[n - 1]->val - distr[0]->val)/b_cnt;
+	u32 bucks[b_cnt];
+	u32 b, i, b_upper = distr[0]->val + b_width;
+
+	memset(bucks, 0, sizeof(bucks));
+
+	b = i = 0;
+	while (true) {
+		while (
+		bucks[b] += distr[i]->val;
+	}
+
+	return true;
+}
+
+#define FIT_FRAC 1/8
+
 void calc_gumbel(struct trace *t, u32 n_samples)
 {
 	u32 i;
-	u32 b, b_s = 6;
-	double *darr;
+	u32 b_s = 6;
 	u32 *marr;
-	u32 arr_len = n_samples >> b_s;
+	u32 arr_len = n_samples * FIT_FRAC >> b_s;
 	size_t marr_size = arr_len * sizeof(*marr);
-	const size_t darr_size = arr_len * sizeof(*darr);
+	u32 n_distinct = t->max - t->min + 1;
+	struct distribution *distr;
 
 	marr = memalign(VEC_SZ, marr_size);
-	darr = memalign(VEC_SZ, darr_size);
+	distr = malloc(n_distinct * sizeof(*distr));
 
 	while (true) {
-		b = 1 << b_s;
-
-		if (n_samples >> b_s < 32)
+		if (n_samples >> b_s < 32) {
+			err("Failed to fit distribution\n");
 			break;
+		}
 
-		arr_len = n_samples >> b_s;
+		arr_len = n_samples * FIT_FRAC >> b_s;
 		marr_size = arr_len * sizeof(*marr);
 		memset(marr, 0, marr_size);
 
@@ -164,24 +374,36 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 			if (t->samples[i] > marr[i >> b_s])
 				marr[i >> b_s] = t->samples[i];
 
-		/* Do Q-Q */
 		qsort(marr, arr_len, sizeof(*marr), cmp_u32);
 
-		for (i = 0; i < arr_len; i++)
-			darr[i] = -log(-log(1 - (double)i / (n_samples / (b + 1))));
+		distr[0].val = marr[0];
+		distr[0].cnt = 1;
+		n_distinct = 0;
+		for (i = 1; i < arr_len; i++) {
+			if (distr[n_distinct].val == marr[i]) {
+				distr[n_distinct].cnt++;
+			} else {
+				n_distinct++;
+				distr[n_distinct].cnt = 1;
+				distr[n_distinct].val = marr[i];
+			}
+		}
+		n_distinct++;
 
+		fit_frechet(t, distr, n_distinct);
+		msg("Frechet (%lg): m=%lf; s=%lf; a=%lf\n",
+		    frechet(distr, n_distinct,
+			    t->distr_a, t->distr_s, t->distr_m),
+		    t->distr_m, t->distr_s, t->distr_a);
 
-		break;
+		file_dump(distr, n_distinct);
 
-		/* If Chi^2 < 0.05 {
-		           save params;
-		           break;
-		   }
-		*/
+		if (chi_2_test(t, arr_len, distr, n_distinct))
+			break;
 
 		b_s <<= 1;
 	}
 
 	free(marr);
-	free(darr);
+	free(distr);
 }

@@ -86,8 +86,9 @@ struct delay {
 		double stdev_sum;
 		double stdev;
 
-		double gumbel_u;
-		double gumbel_b;
+		double distr_m;
+		double distr_s;
+		double distr_a;
 
 		struct distribution {
 			u32 val;
