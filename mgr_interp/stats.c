@@ -415,7 +415,7 @@ static void shake_all(struct trace *t, struct distribution *distr, u32 n,
 
 static void fit_frechet(struct trace *t, struct distribution *distr, u32 n)
 {
-	double a = 4, s = t->max - t->min, m = t->min;
+	double a = t->distr_a, s = t->distr_s, m = t->distr_m;
 	u32 retry = 2;
 
 	if (0) {
@@ -540,6 +540,10 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 
 	marr = memalign(VEC_SZ, marr_size);
 	distr = malloc(n_distinct * sizeof(*distr));
+
+	t->distr_a = 4;
+	t->distr_s = t->max - t->min;
+	t->distr_m = t->min;
 
 	while (!t->distr_ok) {
 		if (n_samples * FIT_FRAC >> b_s < 32)
