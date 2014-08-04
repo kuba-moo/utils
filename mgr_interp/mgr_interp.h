@@ -36,7 +36,7 @@
 
 #define dbg(fmt...)  if (0) printf(fmt)
 #define msg(fmt...)  ({ if (!args.quiet) printf(fmt); })
-#define err(fmt...)  fprintf(stderr, FRED fmt)
+#define err(fmt...)  ({ fprintf(stderr, FRED fmt); fprintf(stderr, FNORM); })
 #define err_ret(fmt...) ({ err(fmt); 1; })
 #define err_nret(fmt...) ({ err(fmt); NULL; })
 #define perr_ret(msg) ({ perror(msg); 1; })
