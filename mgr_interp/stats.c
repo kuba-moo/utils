@@ -172,6 +172,13 @@ static inline double f(double x, double a, double s, double m)
 	return a/s * powed/scaled * exp(-powed);
 }
 
+static inline double g(double x, double a, double s, double m)
+{
+	const double scaled = (x - m) / s;
+
+	return 1/s * exp(-(scaled + exp(-scaled)));
+}
+
 static double frechet(struct distribution *distr, u32 n,
 		      double a, double s, double m)
 {
@@ -180,7 +187,7 @@ static double frechet(struct distribution *distr, u32 n,
 	double res;
 
 	for (i = n; i > 0; i--) {
-		res = log(f(distr[i-1].val, a, s, m));
+		res = log(g(distr[i-1].val, a, s, m));
 		sum += distr[i-1].cnt * res;
 	}
 
@@ -406,7 +413,10 @@ static void fit_frechet(struct trace *t, struct distribution *distr, u32 n)
 	double a = 4, s = t->max - t->min, m = t->min;
 	u32 retry = 2;
 
-	//shake_all(t, distr, n, a, s, m, 4); return;
+	if (0) {
+		shake_all(t, distr, n, a, s, m, 4);
+		return;
+	}
 
 	while (true) {
 		shake_m(t, distr, n, a, s, &m, retry);
@@ -427,6 +437,11 @@ static void fit_frechet(struct trace *t, struct distribution *distr, u32 n)
 static inline double frechet_cdf(const struct trace *t, double x)
 {
 	return exp(-pow((x-t->distr_m)/t->distr_s, -t->distr_a));
+}
+
+static inline double gumbel_cdf(const struct trace *t, double x)
+{
+	return exp(-exp(-(x - t->distr_m)/t->distr_s));
 }
 
 static int chi_2_test(struct trace *t, u32 n_maxes,
@@ -472,23 +487,23 @@ static int chi_2_test(struct trace *t, u32 n_maxes,
 			b_sum += bucks[b];
 
 		if (b < b_cnt - 1)
-			right_p = frechet_cdf(t, distr[0].val + b * b_width);
+			right_p = gumbel_cdf(t, distr[0].val + b * b_width);
 		else
 			right_p = 1;
 		Ei = n_maxes * (right_p - left_p);
 
 		chi += (b_sum - Ei) * (b_sum - Ei) / Ei;
 
-		msg("chi %.2lf b:%u l:%.5lf r:%.5lf Ei:%.2lf Oi:%u\tp:%.5lf\n",
+		dbg("chi %.2lf b:%u l:%.5lf r:%.5lf Ei:%.2lf Oi:%u\tp:%.5lf\n",
 		    chi, b, left_p, right_p, Ei, b_sum,
 		    (b_sum - Ei) * (b_sum - Ei) / Ei);
 
 		left_p = right_p;
 	}
 
-	msg(FGRN "CHI RESULT[%u]: %lg vs. %lg  -> %s\n" FNORM,
-	    b_real, chi, chi2_table[b_real],
-	    chi < chi2_table[b_real] ? "PASS" : "FAIL");
+	msg("CHI RESULT[%u]: %lg vs. %lg  -> %s\n" FNORM,
+	    b_real, chi, chi2_table[b_real - 3],
+	    chi < chi2_table[b_real - 3] ? FGRN "PASS" : FRED "FAIL");
 
 	if (b_real < 20)
 		return 1;
