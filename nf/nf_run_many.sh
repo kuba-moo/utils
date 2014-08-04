@@ -8,6 +8,7 @@
 
 # Say what we got
 echo RES: $RES HOMANY: $HOMANY IFG: $IFG LEN: $LEN N_PKTS: $N_PKTS
+echo expected runtime $(((IFG+LEN)*HOMANY*N_PKTS*8/1000/1000/1000))s
 
 # First programm rng seed
 nf_set_gener.pl 0 0 4 0
