@@ -70,6 +70,8 @@ struct delay {
 	u32 n_samples; /* # of samples loaded to traces (e.g. excl. skips) */
 	u32 n_notifs;
 
+	bool distrs_failed;
+
 	double corr;
 
 	char *fname;

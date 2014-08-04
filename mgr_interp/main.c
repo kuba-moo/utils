@@ -208,6 +208,7 @@ static struct delay_bank *open_many(const char *dname, const char *pfx)
 	char *cwd;
 	struct delay_bank *db;
 	struct delay *d;
+	u32 full_distr = 0;
 
 	cwd = get_current_dir_name();
 	if (!cwd)
@@ -242,12 +243,14 @@ static struct delay_bank *open_many(const char *dname, const char *pfx)
 			db->min_samples = d->n_samples;
 
 		calc_all_stats(d);
+		if (!d->distrs_failed)
+			full_distr++;
 
 		tal_steal(db->bank, d);
 		db->bank[db->n - 1] = d;
 	}
-	msg("Done reading, every run has at least %u samples\n",
-	    db->min_samples);
+	msg("Read %d files [at least %u samples][%u full distrs]\n",
+	    db->n, db->min_samples, full_distr);
 
 	closedir(dir);
 

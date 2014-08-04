@@ -584,6 +584,7 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 
 	if (!t->distr_ok)
 		err("Failed to fit distribution\n");
+	t->d->distrs_failed |= !t->distr_ok;
 
 	free(marr);
 	free(distr);
