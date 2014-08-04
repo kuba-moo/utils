@@ -51,4 +51,27 @@ float chi2_table[] = {
 	/* 245 */ 282.511, 283.586, 284.660, 285.734, 286.808,
 };
 
+float chi2_table_big[] = {
+	/*  250 */  287.882, 341.395, 394.626, 447.632, 500.456,
+	/*  500 */  553.127, 605.667, 658.094, 710.421, 762.661,
+	/*  750 */  814.822, 866.911, 918.937, 970.904, 1022.816,
+	/* 1000 */ 1074.679,
+};
+
 unsigned long chi2_table_len = sizeof(chi2_table)/sizeof(chi2_table[0]);
+unsigned long chi2_table_big_len =
+	sizeof(chi2_table_big)/sizeof(chi2_table_big[0]);
+
+float chi2_read(unsigned df)
+{
+	if (df < chi2_table_len)
+		return chi2_table[df];
+
+	df -= chi2_table_len;
+	df /= 50;
+
+	if (df < chi2_table_big_len)
+		return chi2_table_big[df];
+
+	return -1;
+}

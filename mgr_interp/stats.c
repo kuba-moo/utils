@@ -154,14 +154,19 @@ void file_dump(struct distribution *distr, u32 n)
 {
 	u32 i;
 	FILE *f;
-	static char name[] = "tr0";
+	static char name[] = "tr00";
 
 	f = fopen(name, "w");
 	for (i = 0; i < n; i++)
 		fprintf(f, "%u %u\n", distr[i].val, distr[i].cnt);
 	fclose(f);
 
-	name[2]++;
+	if (name[3] != '9') {
+		name[3]++;
+	} else {
+		name[2]++;
+		name[3] = '0';
+	}
 }
 
 static inline double f(double x, double a, double s, double m)
@@ -360,10 +365,10 @@ static void shake_all(struct trace *t, struct distribution *distr, u32 n,
 		best = -INFINITY;
 		for (i = 0; i < 27; i++) {
 			if (1.0000001 > a + moves[i].gradient[0] * delta
-			    || 0.0000001 > s + moves[i].gradient[1] * delta
-			    || t->min < m + moves[i].gradient[2] * delta
+			    || 0.0000001 > s + moves[i].gradient[1] * delta)
+/*			    || t->min < m + moves[i].gradient[2] * delta
 			    || 0 > m + moves[i].gradient[2] * delta)
-				continue;
+*/				continue;
 
 			moves[i].res =
 				frechet(distr, n,
@@ -444,16 +449,24 @@ static inline double gumbel_cdf(const struct trace *t, double x)
 	return exp(-exp(-(x - t->distr_m)/t->distr_s));
 }
 
+#define CHI_MIN_BUCKETS 6
+#define CHI_MIN_IN_BUCKET 5
+
 static int chi_2_test(struct trace *t, u32 n_maxes,
 		      const struct distribution *distr, u32 n)
 {
 	const u32 b_cnt = n_maxes/30;
-	const u32 b_width = (distr[n - 1].val - distr[0].val)/b_cnt;
+	const float b_width = (float)(distr[n - 1].val - distr[0].val)/b_cnt;
 	u32 bucks[b_cnt];
 	u32 b, i, b_upper, b_sum, b_real;
 	double chi = 0, Ei, left_p = 0, right_p;
 
+	if (b_cnt < CHI_MIN_BUCKETS)
+		return 1;
+
 	memset(bucks, 0, sizeof(bucks));
+
+	assert(b_width > 0.5);
 
 	for (b = i = 0; b < b_cnt; b++) {
 		b_upper = distr[0].val + (b + 1) * b_width;
@@ -483,7 +496,7 @@ static int chi_2_test(struct trace *t, u32 n_maxes,
 	while (b < b_cnt) {
 		b_real++;
 
-		for (b_sum = 0; b_sum < 6 && b < b_cnt; b++)
+		for (b_sum = 0; b_sum < CHI_MIN_IN_BUCKET && b < b_cnt; b++)
 			b_sum += bucks[b];
 
 		if (b < b_cnt - 1)
@@ -501,14 +514,14 @@ static int chi_2_test(struct trace *t, u32 n_maxes,
 		left_p = right_p;
 	}
 
-	msg("CHI RESULT[%u]: %lg vs. %lg  -> %s\n" FNORM,
-	    b_real, chi, chi2_table[b_real - 3],
-	    chi < chi2_table[b_real - 3] ? FGRN "PASS" : FRED "FAIL");
-
-	if (b_real < 20)
+	if (b_real < CHI_MIN_BUCKETS)
 		return 1;
 
-	t->distr_ok = chi < chi2_table[b_real];
+	msg("\t\tCHI^2 RESULT[%u]: %lg vs. %lg  -> %s\n" FNORM,
+	    b_real, chi, chi2_read(b_real - 3),
+	    chi < chi2_read(b_real - 3) ? FGRN "PASS" : FRED "FAIL");
+
+	t->distr_ok = chi < chi2_read(b_real - 3);
 
 	return 0;
 }
@@ -518,7 +531,7 @@ static int chi_2_test(struct trace *t, u32 n_maxes,
 void calc_gumbel(struct trace *t, u32 n_samples)
 {
 	u32 i;
-	u32 b_s = 9;
+	u32 b_s = 7;
 	u32 *marr;
 	u32 arr_len = n_samples * FIT_FRAC >> b_s;
 	size_t marr_size = arr_len * sizeof(*marr);
@@ -557,12 +570,11 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 		n_distinct++;
 
 		fit_frechet(t, distr, n_distinct);
-		msg("Frechet (%lg): m=%lf; s=%lf; a=%lf\n",
+
+		msg("\t\tFrechet (%lg): m=%lf; s=%lf; a=%lf\n",
 		    frechet(distr, n_distinct,
 			    t->distr_a, t->distr_s, t->distr_m),
 		    t->distr_m, t->distr_s, t->distr_a);
-
-		file_dump(distr, n_distinct);
 
 		if (chi_2_test(t, arr_len, distr, n_distinct))
 			break;
