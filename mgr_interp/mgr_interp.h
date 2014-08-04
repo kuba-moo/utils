@@ -86,6 +86,7 @@ struct delay {
 		double stdev_sum;
 		double stdev;
 
+		bool distr_ok;
 		double distr_m;
 		double distr_s;
 		double distr_a;

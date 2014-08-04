@@ -168,9 +168,8 @@ static inline double f(double x, double a, double s, double m)
 {
 	const double scaled = (x - m) / s;
 	const double powed = pow(scaled, -a);
-	double ret = a/s * powed/scaled * exp(-powed);
 
-	return ret;
+	return a/s * powed/scaled * exp(-powed);
 }
 
 static double frechet(struct distribution *distr, u32 n,
@@ -178,9 +177,12 @@ static double frechet(struct distribution *distr, u32 n,
 {
 	u32 i;
 	double sum = 0;
+	double res;
 
-	for (i = n; i > 0; i--)
-		sum += distr[i-1].cnt * log(f(distr[i-1].val, a, s, m));
+	for (i = n; i > 0; i--) {
+		res = log(f(distr[i-1].val, a, s, m));
+		sum += distr[i-1].cnt * res;
+	}
 
 	return sum;
 }
@@ -303,10 +305,108 @@ static bool shake_s(struct distribution *distr, u32 n,
 	return ret;
 }
 
+struct move {
+	double res;
+	s8 gradient[3];
+} moves[27] = {
+	/*  n                     a   s   m    */
+	/*  0 */ { .gradient = { -1, -1, -1 }, },
+	/*  1 */ { .gradient = { -1, -1,  0 }, },
+	/*  2 */ { .gradient = { -1, -1,  1 }, },
+	/*  3 */ { .gradient = { -1,  0, -1 }, },
+	/*  4 */ { .gradient = { -1,  0,  0 }, },
+	/*  5 */ { .gradient = { -1,  0,  1 }, },
+	/*  6 */ { .gradient = { -1,  1, -1 }, },
+	/*  7 */ { .gradient = { -1,  1,  0 }, },
+	/*  8 */ { .gradient = { -1,  1,  1 }, },
+	/*  9 */ { .gradient = {  0, -1, -1 }, },
+	/* 10 */ { .gradient = {  0, -1,  0 }, },
+	/* 11 */ { .gradient = {  0, -1,  1 }, },
+	/* 12 */ { .gradient = {  0,  0, -1 }, },
+	/* 13 */ { .gradient = {  0,  0,  0 }, }, /* [13] -> NO_MOVE */
+	/* 14 */ { .gradient = {  0,  0,  1 }, },
+	/* 15 */ { .gradient = {  0,  1, -1 }, },
+	/* 16 */ { .gradient = {  0,  1,  0 }, },
+	/* 17 */ { .gradient = {  0,  1,  1 }, },
+	/* 18 */ { .gradient = {  1, -1, -1 }, },
+	/* 19 */ { .gradient = {  1, -1,  0 }, },
+	/* 20 */ { .gradient = {  1, -1,  1 }, },
+	/* 21 */ { .gradient = {  1,  0, -1 }, },
+	/* 22 */ { .gradient = {  1,  0,  0 }, },
+	/* 23 */ { .gradient = {  1,  0,  1 }, },
+	/* 24 */ { .gradient = {  1,  1, -1 }, },
+	/* 25 */ { .gradient = {  1,  1,  0 }, },
+	/* 26 */ { .gradient = {  1,  1,  1 }, },
+};
+
+#define NO_MOVE 13
+
+static void shake_all(struct trace *t, struct distribution *distr, u32 n,
+		      double a, double s, double m, const u32 max_retry)
+{
+	u32 i, best_i;
+	u32 retry = 0;
+	double delta = 1, best;
+
+	while (retry < max_retry) {
+		best_i = 30;
+		best = -INFINITY;
+		for (i = 0; i < 27; i++) {
+			if (1.0000001 > a + moves[i].gradient[0] * delta
+			    || 0.0000001 > s + moves[i].gradient[1] * delta
+			    || t->min < m + moves[i].gradient[2] * delta
+			    || 0 > m + moves[i].gradient[2] * delta)
+				continue;
+
+			moves[i].res =
+				frechet(distr, n,
+					a + moves[i].gradient[0] * delta,
+					s + moves[i].gradient[1] * delta,
+					m + moves[i].gradient[2] * delta);
+
+			if (moves[i].res > best) {
+				best = moves[i].res;
+				best_i = i;
+			}
+		}
+
+		assert(best_i < 27);
+
+		dbg("Go   %u(%u) a=%.2lf s=%.2lf m=%.2lf %lf [%le]\n",
+		    best_i, retry, a, s, m,
+		    moves[best_i].res, best - moves[NO_MOVE].res);
+
+		if (best_i != NO_MOVE) {
+			a += moves[best_i].gradient[0] * delta;
+			s += moves[best_i].gradient[1] * delta;
+			m += moves[best_i].gradient[2] * delta;
+
+			delta = 1;
+			retry = 0;
+		} else {
+			delta /= 2;
+			retry++;
+		}
+
+		dbg("Went %u(%u) a=%.2lf s=%.2lf m=%.2lf %lf [%le]\n",
+		    best_i, retry, a, s, m,
+		    moves[best_i].res, best - moves[NO_MOVE].res);
+	}
+
+	msg("Shake all would choose: (%lg) m=%lg; s=%lg; a=%lg\n",
+	    moves[NO_MOVE].res, m, s, a);
+
+	t->distr_a = a;
+	t->distr_s = s;
+	t->distr_m = m;
+}
+
 static void fit_frechet(struct trace *t, struct distribution *distr, u32 n)
 {
-	double a = 3, s = t->max - t->min, m = t->min;
+	double a = 4, s = t->max - t->min, m = t->min;
 	u32 retry = 2;
+
+	//shake_all(t, distr, n, a, s, m, 4); return;
 
 	while (true) {
 		shake_m(t, distr, n, a, s, &m, retry);
@@ -324,31 +424,86 @@ static void fit_frechet(struct trace *t, struct distribution *distr, u32 n)
 	t->distr_a = a;
 }
 
-bool chi_2_test(struct trace *t, u32 n_maxes,
-		struct distribution *distr, u32 n)
+static inline double frechet_cdf(const struct trace *t, double x)
+{
+	return exp(-pow((x-t->distr_m)/t->distr_s, -t->distr_a));
+}
+
+static int chi_2_test(struct trace *t, u32 n_maxes,
+		      const struct distribution *distr, u32 n)
 {
 	const u32 b_cnt = n_maxes/30;
-	const u32 b_width = (distr[n - 1]->val - distr[0]->val)/b_cnt;
+	const u32 b_width = (distr[n - 1].val - distr[0].val)/b_cnt;
 	u32 bucks[b_cnt];
-	u32 b, i, b_upper = distr[0]->val + b_width;
+	u32 b, i, b_upper, b_sum, b_real;
+	double chi = 0, Ei, left_p = 0, right_p;
 
 	memset(bucks, 0, sizeof(bucks));
 
-	b = i = 0;
-	while (true) {
-		while (
-		bucks[b] += distr[i]->val;
+	for (b = i = 0; b < b_cnt; b++) {
+		b_upper = distr[0].val + (b + 1) * b_width;
+
+		while (distr[i].val < b_upper)
+			bucks[b] += distr[i++].cnt;
+	}
+	for (; i < n; i++)
+		bucks[b_cnt - 1] += distr[i].cnt;
+
+#ifdef DEBUG
+	{
+		u32 d_sum = 0;
+
+		b_sum = 0;
+		for (i = 0; i < n; i++)
+			d_sum += distr[i].cnt;
+
+		for (b = 0; b < b_cnt; b++)
+			b_sum += bucks[b];
+
+		assert(b_sum == d_sum);
+	}
+#endif
+
+	b = b_real = 0;
+	while (b < b_cnt) {
+		b_real++;
+
+		for (b_sum = 0; b_sum < 6 && b < b_cnt; b++)
+			b_sum += bucks[b];
+
+		if (b < b_cnt - 1)
+			right_p = frechet_cdf(t, distr[0].val + b * b_width);
+		else
+			right_p = 1;
+		Ei = n_maxes * (right_p - left_p);
+
+		chi += (b_sum - Ei) * (b_sum - Ei) / Ei;
+
+		msg("chi %.2lf b:%u l:%.5lf r:%.5lf Ei:%.2lf Oi:%u\tp:%.5lf\n",
+		    chi, b, left_p, right_p, Ei, b_sum,
+		    (b_sum - Ei) * (b_sum - Ei) / Ei);
+
+		left_p = right_p;
 	}
 
-	return true;
+	msg(FGRN "CHI RESULT[%u]: %lg vs. %lg  -> %s\n" FNORM,
+	    b_real, chi, chi2_table[b_real],
+	    chi < chi2_table[b_real] ? "PASS" : "FAIL");
+
+	if (b_real < 20)
+		return 1;
+
+	t->distr_ok = chi < chi2_table[b_real];
+
+	return 0;
 }
 
-#define FIT_FRAC 1/8
+#define FIT_FRAC 1
 
 void calc_gumbel(struct trace *t, u32 n_samples)
 {
 	u32 i;
-	u32 b_s = 6;
+	u32 b_s = 9;
 	u32 *marr;
 	u32 arr_len = n_samples * FIT_FRAC >> b_s;
 	size_t marr_size = arr_len * sizeof(*marr);
@@ -358,11 +513,9 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 	marr = memalign(VEC_SZ, marr_size);
 	distr = malloc(n_distinct * sizeof(*distr));
 
-	while (true) {
-		if (n_samples >> b_s < 32) {
-			err("Failed to fit distribution\n");
+	while (!t->distr_ok) {
+		if (n_samples * FIT_FRAC >> b_s < 32)
 			break;
-		}
 
 		arr_len = n_samples * FIT_FRAC >> b_s;
 		marr_size = arr_len * sizeof(*marr);
@@ -399,8 +552,11 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 		if (chi_2_test(t, arr_len, distr, n_distinct))
 			break;
 
-		b_s <<= 1;
+		b_s++;
 	}
+
+	if (!t->distr_ok)
+		err("Failed to fit distribution\n");
 
 	free(marr);
 	free(distr);
