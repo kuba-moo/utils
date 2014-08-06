@@ -88,11 +88,15 @@ struct delay {
 		double stdev_sum;
 		double stdev;
 
-		bool distr_ok;
-		double distr_m;
-		double distr_s;
-		double distr_a;
+		/* fitted EVT distribution */
+		struct evt_distr {
+			bool ok;
+			double m;
+			double s;
+			double a;
+		} ed;
 
+		/* aggregated distribution (not to args.aggr, just cnt) */
 		struct distribution {
 			u32 val;
 			u32 cnt;

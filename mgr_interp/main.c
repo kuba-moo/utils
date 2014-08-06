@@ -127,9 +127,9 @@ static int make_stats(struct delay *d, FILE *f)
 
 	for_each_trace(d, t) {
 		fprintf(f, "%lf %lf", t->mean, t->stdev);
-		if (t->distr_ok)
+		if (t->ed.ok)
 			fprintf(f, "   %lf %lf %lf\n",
-				t->distr_a, t->distr_s, t->distr_m);
+				t->ed.a, t->ed.s, t->ed.m);
 		fputc('\n', f);
 	}
 
