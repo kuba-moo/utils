@@ -82,7 +82,7 @@ static int make_distr(struct delay *d, FILE *f)
 				sums[i] += (di[i]++)->cnt;
 
 		if (sums[0] || sums[1] ||sums[2])
-			fprintf(f, "%d %u %u %u\n", val * 8,
+			fprintf(f, "%d %u %u %u\n", val,
 				sums[0], sums[1], sums[2]);
 
 		val += args.aggr;
