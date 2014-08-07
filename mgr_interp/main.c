@@ -209,11 +209,11 @@ static void calc_all_stats(struct delay *d)
 		calc_mean(t, d->n_samples);
 		calc_stdev(t, d->n_samples);
 
-		if (i == 1)
-			maybe_rebalance(d);
-
 		msg("\tTrace %d: min %u max %u mean %lf stdev %lf\n",
 		    i, t->min, t->max, t->mean, t->stdev);
+
+		if (i == 1)
+			maybe_rebalance(d);
 	}
 	calc_corr(d);
 	msg("\tCorrelation: %lf\n", d->corr);
