@@ -136,5 +136,6 @@ void calc_mean(struct trace *t, u32 n_samples);
 void calc_stdev(struct trace *t, u32 n_samples);
 void calc_gumbel(struct trace *t, u32 n_samples);
 void calc_corr(struct delay *d);
+void balance_means(struct delay *d);
 
 #endif

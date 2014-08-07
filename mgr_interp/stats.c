@@ -145,6 +145,16 @@ void calc_stdev(struct trace *t, u32 n_samples)
 	free(darr);
 }
 
+void balance_means(struct delay *d)
+{
+	const int offset = d->t[1].mean - d->t[0].mean;
+	u32 i;
+
+	for (i = 0; i < d->n_samples; i++)
+		if (d->t[1].samples[i] - offset < d->t[2].samples[i])
+			d->t[2].samples[i] = d->t[1].samples[i] - offset;
+}
+
 void calc_corr(struct delay *d)
 {
 	u32 i;

@@ -182,6 +182,23 @@ static int make_per_delay(const char *dir, struct delay_bank *db,
 	return 0;
 }
 
+static void maybe_rebalance(struct delay *d)
+{
+	if (abs(d->t[1].mean - d->t[0].mean) < 10)
+		return;
+
+	/* we expect results from the second machine (aka DUT4) to be bigger */
+	if (d->t[1].mean - d->t[0].mean > 10) {
+		msg(FYLW "\tMeans are far apart (%lg), recalc\n",
+		    d->t[1].mean - d->t[0].mean);
+		balance_means(d);
+		return;
+	}
+
+	err("\tMeans are far apart (%lg), but in a wrong way!\n",
+	    d->t[1].mean - d->t[0].mean);
+}
+
 static void calc_all_stats(struct delay *d)
 {
 	struct trace *t;
@@ -191,13 +208,18 @@ static void calc_all_stats(struct delay *d)
 		calc_distr(t);
 		calc_mean(t, d->n_samples);
 		calc_stdev(t, d->n_samples);
-		calc_gumbel(t, d->n_samples);
+
+		if (i == 1)
+			maybe_rebalance(d);
 
 		msg("\tTrace %d: min %u max %u mean %lf stdev %lf\n",
 		    i, t->min, t->max, t->mean, t->stdev);
 	}
 	calc_corr(d);
 	msg("\tCorrelation: %lf\n", d->corr);
+
+	for_each_trace(d, t)
+		calc_gumbel(t, d->n_samples);
 }
 
 static struct delay_bank *open_many(const char *dname, const char *pfx)
