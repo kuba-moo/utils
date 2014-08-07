@@ -204,7 +204,7 @@ static struct delay_bank *open_many(const char *dname, const char *pfx)
 {
 	DIR *dir;
 	struct dirent *ent;
-	int pfx_len = strlen(pfx);
+	int pfx_len = pfx ? strlen(pfx) : 0;
 	char *cwd;
 	struct delay_bank *db;
 	struct delay *d;
@@ -224,7 +224,7 @@ static struct delay_bank *open_many(const char *dname, const char *pfx)
 	db->min_samples = -1;
 
 	while ((ent = readdir(dir))) {
-		if (strncmp(ent->d_name, pfx, pfx_len))
+		if (pfx && strncmp(ent->d_name, pfx, pfx_len))
 			continue;
 
 		if (db->bank)
@@ -271,8 +271,6 @@ int main(int argc, char **argv)
 
 	opt_free_table();
 
-	if (!args.res_pfx)
-		return err_ret("Please specify result file name prefix\n");
 	if (!args.ifg)
 		err("Consider setting ifg to improve parsing accuracy\n");
 
