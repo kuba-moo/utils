@@ -488,7 +488,7 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 
 		fit_frechet(t, distr, n_distinct);
 
-		msg("\t\tFrechet (%lg): m=%lf; s=%lf; a=%lf\n",
+		msg("\t\tEVT-%d (%lg): m=%.4lf; s=%.4lf; a=%.3lf\n", 1 << b_s,
 		    fit_quality(distr, n_distinct, t->ed.a, t->ed.s, t->ed.m),
 		    t->ed.m, t->ed.s, t->ed.a);
 
@@ -500,6 +500,8 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 
 	if (!t->ed.ok)
 		err("Failed to fit distribution\n");
+	else
+		t->ed.block_size = 1 << b_s;
 	t->d->distrs_failed |= !t->ed.ok;
 
 	free(marr);

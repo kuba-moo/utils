@@ -91,9 +91,12 @@ struct delay {
 		/* fitted EVT distribution */
 		struct evt_distr {
 			bool ok;
+
 			double m;
 			double s;
 			double a;
+
+			u32 block_size;
 		} ed;
 
 		/* aggregated distribution (not to args.aggr, just cnt) */
