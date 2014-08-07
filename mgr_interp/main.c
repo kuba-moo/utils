@@ -236,7 +236,7 @@ static struct delay_bank *open_many(const char *dname, const char *pfx)
 		if (!d) {
 			tal_free(db);
 			db = NULL;
-			break;
+			goto out;
 		}
 
 		if (db->min_samples > d->n_samples)
@@ -249,9 +249,11 @@ static struct delay_bank *open_many(const char *dname, const char *pfx)
 		tal_steal(db->bank, d);
 		db->bank[db->n - 1] = d;
 	}
+
 	msg("Read %d files [at least %u samples][%u full distrs]\n",
 	    db->n, db->min_samples, full_distr);
 
+out:
 	closedir(dir);
 
 	chdir(cwd);
