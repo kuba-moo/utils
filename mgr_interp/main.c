@@ -189,7 +189,7 @@ static void maybe_rebalance(struct delay *d)
 
 	/* we expect results from the second machine (aka DUT4) to be bigger */
 	if (d->t[1].mean - d->t[0].mean > 10) {
-		msg(FYLW "\tMeans are far apart (%lg), recalc\n",
+		msg(FYLW "\tMeans are far apart (%lg), recalc\n" FNORM,
 		    d->t[1].mean - d->t[0].mean);
 		balance_means(d);
 		return;

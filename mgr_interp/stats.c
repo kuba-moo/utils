@@ -150,9 +150,13 @@ void balance_means(struct delay *d)
 	const int offset = d->t[1].mean - d->t[0].mean;
 	u32 i;
 
-	for (i = 0; i < d->n_samples; i++)
+	for (i = 0; i < d->n_samples; i++) {
 		if (d->t[1].samples[i] - offset < d->t[2].samples[i])
 			d->t[2].samples[i] = d->t[1].samples[i] - offset;
+
+		if (d->t[2].samples[i] < d->t[2].min)
+			d->t[2].min = d->t[2].samples[i];
+	}
 }
 
 void calc_corr(struct delay *d)
