@@ -366,18 +366,22 @@ static void fit_frechet(struct trace *t, struct distribution *distr, u32 n)
 static int chi_2_test(struct trace *t, u32 n_maxes,
 		      const struct distribution *distr, u32 n)
 {
-	const u32 b_cnt = n_maxes/30;
-	const float b_width = (float)(distr[n - 1].val - distr[0].val)/b_cnt;
+	u32 b_cnt = n_maxes/30;
+	float b_width = (distr[n - 1].val - distr[0].val)/(float)b_cnt;
 	u32 bucks[b_cnt];
 	u32 b, i, b_upper, b_sum, b_real;
 	double chi = 0, Ei, left_p = 0, right_p;
+
+	while (b_width < 0.5) {
+		--b_cnt;
+		assert(b_cnt);
+		b_width = (distr[n - 1].val - distr[0].val)/(float)b_cnt;
+	}
 
 	if (b_cnt < CHI_MIN_BUCKETS)
 		return 1;
 
 	memset(bucks, 0, sizeof(bucks));
-
-	assert(b_width > 0.5);
 
 	for (b = i = 0; b < b_cnt; b++) {
 		b_upper = distr[0].val + (b + 1) * b_width;
