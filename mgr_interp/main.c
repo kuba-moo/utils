@@ -224,6 +224,10 @@ static struct delay_bank *open_many(const char *dname, const char *pfx)
 	db->min_samples = -1;
 
 	while ((ent = readdir(dir))) {
+		if (ent->d_type != DT_REG) {
+			msg("Skipping %s - not a regular file\n", ent->d_name);
+			continue;
+		}
 		if (pfx && strncmp(ent->d_name, pfx, pfx_len))
 			continue;
 
