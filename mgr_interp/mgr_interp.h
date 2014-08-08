@@ -57,6 +57,8 @@ struct cmdline_args {
 	char *res_pfx;
 	char *res_dir;
 
+	bool rebalance;
+
 	char *distr;
 	char *hm;
 	char *stats;

@@ -53,6 +53,8 @@ static struct opt_table opts[] = {
 		     &args.stats, "write mean,stdev,correlation to given directory"),
 	OPT_WITH_ARG("-n|--aggregate <n>", opt_set_intval, NULL,
 		     &args.aggr, "aggregation for simple statistics (bucket size)"),
+	OPT_WITHOUT_ARG("-r|--rebalance", opt_set_bool,
+			&args.rebalance, "rebalance results to make means match"),
 	OPT_WITHOUT_ARG("-q|--quiet", opt_set_bool,
 			&args.quiet, "suppress text output"),
 	OPT_ENDTABLE
@@ -216,8 +218,9 @@ static void calc_all_stats(struct delay *d)
 		msg("\tTrace %d: min %u max %u mean %lf stdev %lf\n",
 		    i, t->min, t->max, t->mean, t->stdev);
 
-		if (i == 1)
+		if (args.rebalance && i == 1)
 			maybe_rebalance(d);
+
 	}
 	calc_corr(d);
 	msg("\tCorrelation: %lf\n", d->corr);
