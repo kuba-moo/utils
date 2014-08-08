@@ -204,6 +204,11 @@ static inline double cdf(const struct trace *t, double x)
 {
 	return exp(-pow((x-t->ed.m)/t->ed.s, -t->ed.a));
 }
+
+static inline double xceed(const struct trace *t, double p)
+{
+	return t->ed.m + t->ed.s * pow(-log(pow(1 - p, t->ed.block_size)), -1/t->ed.a);
+}
 #elif defined(FIT_GUMBEL)
 static inline double f(double x, double a, double s, double m)
 {
@@ -508,10 +513,11 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 		fit_frechet(t, distr, n_distinct);
 
 		t->ed.block_size = 1 << b_s;
+		t->ed.xceed = xceed(t, 0.0001);
 		msg("\t\tEVT-%d (%lg): m=%.4lf; s=%.4lf; a=%.3lf  %lg\n",
 		    1 << b_s,
 		    fit_quality(distr, n_distinct, t->ed.a, t->ed.s, t->ed.m),
-		    t->ed.m, t->ed.s, t->ed.a, xceed(t, 0.0001));
+		    t->ed.m, t->ed.s, t->ed.a, t->ed.xceed);
 
 		if (chi_2_test(t, arr_len, distr, n_distinct))
 			break;

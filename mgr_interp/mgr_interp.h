@@ -97,6 +97,7 @@ struct delay {
 			double a;
 
 			u32 block_size;
+			double xceed;
 		} ed;
 
 		/* aggregated distribution (not to args.aggr, just cnt) */

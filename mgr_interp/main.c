@@ -133,6 +133,10 @@ static int make_stats(struct delay *d, FILE *f)
 		fputc('\n', f);
 	}
 
+	for_each_trace(d, t)
+		fprintf(f, "%lf ", t->ed.xceed);
+	fputc('\n', f);
+
 	fprintf(f, "%lf\n", d->corr);
 
 	return 0;
