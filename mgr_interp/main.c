@@ -128,7 +128,8 @@ static int make_stats(struct delay *d, FILE *f)
 	struct trace *t;
 
 	for_each_trace(d, t) {
-		fprintf(f, "%lf %lf", t->mean, t->stdev);
+		fprintf(f, "%u %u %lf %lf",
+			t->min, t->max, t->mean, t->stdev);
 		if (t->ed.ok)
 			fprintf(f, "   %lf %lf %lf %u",
 				t->ed.a, t->ed.s, t->ed.m, t->ed.block_size);
