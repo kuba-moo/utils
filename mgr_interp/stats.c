@@ -216,6 +216,11 @@ static inline double cdf(const struct trace *t, double x)
 {
 	return exp(-exp(-(x - t->ed.m)/t->ed.s));
 }
+
+static inline double xceed(const struct trace *t, double p)
+{
+	return t->ed.m - t->ed.s * log(-log(pow(1 - p, t->ed.block_size)));
+}
 #else
 #error Please choose which distribution to fit. Define FIT_GUMBEL or FIT_FRECHET.
 #endif
@@ -502,9 +507,10 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 
 		fit_frechet(t, distr, n_distinct);
 
-		msg("\t\tEVT-%d (%lg): m=%.4lf; s=%.4lf; a=%.3lf\n", 1 << b_s,
+		msg("\t\tEVT-%d (%lg): m=%.4lf; s=%.4lf; a=%.3lf  %lg\n",
+		    1 << b_s,
 		    fit_quality(distr, n_distinct, t->ed.a, t->ed.s, t->ed.m),
-		    t->ed.m, t->ed.s, t->ed.a);
+		    t->ed.m, t->ed.s, t->ed.a, xceed(t, 0.0001));
 
 		if (chi_2_test(t, arr_len, distr, n_distinct))
 			break;
