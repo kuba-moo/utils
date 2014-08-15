@@ -446,9 +446,9 @@ static int chi_2_test(struct trace *t, u32 n_maxes,
 
 		chi += (b_sum - Ei) * (b_sum - Ei) / Ei;
 
-		dbg("chi %.2lf b:%u l:%.5lf r:%.5lf Ei:%.2lf Oi:%u\tp:%.5lf\n",
-		    chi, b, left_p, right_p, Ei, b_sum,
-		    (b_sum - Ei) * (b_sum - Ei) / Ei);
+		dbg("chi %.2lf b:%u %lg l:%.5lf r:%.5lf Ei:%.2lf Oi:%u\tp:%.5lf\n",
+		    chi, b, distr[0].val + b * b_width, left_p, right_p, Ei,
+		    b_sum, (b_sum - Ei) * (b_sum - Ei) / Ei);
 
 		left_p = right_p;
 	}
