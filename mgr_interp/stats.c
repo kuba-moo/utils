@@ -34,7 +34,7 @@
 #define CHI_MIN_BUCKETS 6
 #define CHI_MIN_IN_BUCKET 5
 
-static inline void file_dump(struct distribution *distr, u32 n)
+static inline void file_dump(const struct distribution *distr, const u32 n)
 {
 	u32 i;
 	FILE *f;
