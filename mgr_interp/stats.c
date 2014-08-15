@@ -490,10 +490,13 @@ void calc_gumbel(struct trace *t, u32 n_samples)
 		marr_size = arr_len * sizeof(*marr);
 		memset(marr, 0, marr_size);
 
+#define map_direct(i) (i >> b_s)
+#define map_pos(i) (i % arr_len)
+#define map map_pos
 		for (i = 0; i < arr_len << b_s; i++)
-			if (t->samples[i] > marr[i >> b_s])
-				marr[i >> b_s] = t->samples[i];
-
+			if (t->samples[i] > marr[map(i)])
+				marr[map(i)] = t->samples[i];
+#undef map
 		qsort(marr, arr_len, sizeof(*marr), cmp_u32);
 
 		distr[0].val = marr[0];
