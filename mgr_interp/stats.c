@@ -118,9 +118,37 @@ void calc_mean(struct trace *t, u32 n_samples)
 	t->mean = (double)t->sum / n_samples;
 }
 
+void calc_svt_basic(struct trace *t, u32 n_samples)
+{
+	u32 i, j;
+	u32 min, max;
+	u64 sum;
+
+	for (i = 0; i < n_samples / args.svt_block; i++) {
+		min = -1;
+		max = 0;
+		sum = 0;
+
+		for (j = 0; j < args.svt_block; j++) {
+			sum += t->samples[i * args.svt_block + j];
+			if (min > t->samples[i * args.svt_block + j])
+				min = t->samples[i * args.svt_block + j];
+			if (max < t->samples[i * args.svt_block + j])
+				max = t->samples[i * args.svt_block + j];
+		}
+
+		t->svt_stats[i].min = min;
+		t->svt_stats[i].max = max;
+		t->svt_stats[i].sum = sum;
+		t->svt_stats[i].mean = sum / (double)args.svt_block;
+	}
+}
+
 static double preacc[VEC_PREACC] __attribute__ ((aligned (VEC_SZ)));
 
-void calc_stdev(struct trace *t, u32 n_samples)
+static void calc_stdev_range(const u32 *samples, const u32 n_samples,
+			     const double mean,
+			     double *stdev_sum, double *stdev)
 {
 	u32 i, j;
 	double *darr;
@@ -128,10 +156,11 @@ void calc_stdev(struct trace *t, u32 n_samples)
 	darr = memalign(VEC_SZ, n_samples/VEC_PREACC * sizeof(double));
 
 	for (i = 0; i < n_samples; i++) {
-		preacc[i % VEC_PREACC] = t->samples[i] - t->mean;
+		preacc[i % VEC_PREACC] = samples[i] - mean;
 
 		if (i % VEC_PREACC == VEC_PREACC - 1) {
 			darr[i / VEC_PREACC] = 0;
+
 			for (j = 0; j < VEC_PREACC; j++)
 				darr[i/VEC_PREACC] += preacc[j] * preacc[j];
 		}
@@ -139,10 +168,28 @@ void calc_stdev(struct trace *t, u32 n_samples)
 	for (j = 0; j < i % VEC_PREACC; j++)
 		darr[0] += preacc[j] * preacc[j];
 
-	t->stdev_sum = table_sum(darr, n_samples / VEC_PREACC);
-	t->stdev = sqrt((double)t->stdev_sum / (n_samples - 1));
+	*stdev_sum = table_sum(darr, n_samples / VEC_PREACC);
+	*stdev = sqrt((double)*stdev_sum / (n_samples - 1));
 
 	free(darr);
+}
+
+void calc_stdev(struct trace *t, u32 n_samples)
+{
+	calc_stdev_range(t->samples, n_samples, t->mean,
+			 &t->stdev_sum, &t->stdev);
+}
+
+void calc_svt_stdev(struct trace *t, u32 n_samples)
+{
+	u32 i;
+
+	for (i = 0; i < n_samples / args.svt_block; i++)
+		calc_stdev_range(&t->samples[i * args.svt_block],
+				 args.svt_block,
+				 t->svt_stats[i].mean,
+				 &t->svt_stats[i].stdev_sum,
+				 &t->svt_stats[i].stdev);
 }
 
 void balance_means(struct delay *d)
@@ -159,28 +206,63 @@ void balance_means(struct delay *d)
 	}
 }
 
-void calc_corr(struct delay *d)
+static void calc_corr_range(
+	const u32 n_samples, const u32 *s_t0, const u32 *s_t1,
+	const double t0_mean, const double t1_mean,
+	const double t0_stdev_sum, const double t1_stdev_sum,
+	double *corr)
 {
 	u32 i;
 	double corr_sum;
 	double *darr;
-	const u32 darr_len = d->n_samples / VEC_PREACC +
-		!!(d->n_samples % VEC_PREACC);
+	const u32 darr_len = n_samples/VEC_PREACC + !!(n_samples % VEC_PREACC);
 	const size_t darr_size = darr_len * sizeof(double);
 
 	darr = memalign(VEC_SZ, darr_size);
 	memset(darr, 0, darr_size);
 
-#define corr_(_tr_, _i_) ((_tr_).samples[_i_] - (_tr_).mean)
+#define corr_(_tr_, _i_) (s_##_tr_[_i_] - _tr_##_mean)
 
-	for (i = 0; i < d->n_samples; i++)
-		darr[i / VEC_PREACC] += corr_(d->t[0], i) * corr_(d->t[1], i);
+	for (i = 0; i < n_samples; i++)
+		darr[i / VEC_PREACC] += corr_(t0, i) * corr_(t1, i);
 
 	corr_sum = table_sum(darr, darr_len);
-	d->corr = corr_sum / (sqrt(d->t[0].stdev_sum) *
-			      sqrt(d->t[1].stdev_sum));
+	*corr = corr_sum / (sqrt(t0_stdev_sum) * sqrt(t1_stdev_sum));
 
 	free(darr);
+}
+
+void calc_corr(struct delay *d)
+{
+	calc_corr_range(d->n_samples, d->t[0].samples, d->t[1].samples,
+			d->t[0].mean, d->t[1].mean,
+			d->t[0].stdev_sum, d->t[1].stdev_sum, &d->corr);
+}
+
+void calc_svt_corr(struct delay *d)
+{
+	u32 i;
+
+	if (args.svt_block < VEC_PREACC) {
+		err("Correlation block smaller than preacc block\n");
+		return;
+	}
+	if (args.svt_block % VEC_PREACC) {
+		err("Correlation not multiple of preacc block\n");
+		return;
+	}
+
+	d->corr_vs_time = tal_arr(d, double, d->n_samples / args.svt_block);
+
+	for (i = 0; i < d->n_samples / args.svt_block; i++)
+		calc_corr_range(args.svt_block,
+				&d->t[0].samples[i * args.svt_block],
+				&d->t[1].samples[i * args.svt_block],
+				d->t[0].svt_stats[i].mean,
+				d->t[1].svt_stats[i].mean,
+				d->t[0].svt_stats[i].stdev_sum,
+				d->t[1].svt_stats[i].stdev_sum,
+				&d->corr_vs_time[i]);
 }
 
 static int cmp_u32(const void *a1, const void *a2)

@@ -53,6 +53,10 @@ static struct opt_table opts[] = {
 		     &args.stats, "write mean,stdev,correlation to given directory"),
 	OPT_WITH_ARG("-n|--aggregate <n>", opt_set_intval, NULL,
 		     &args.aggr, "aggregation for simple statistics (bucket size)"),
+	OPT_WITH_ARG("--stats-time-block <n>", opt_set_uintval, NULL,
+		     &args.svt_block, "block for stats/time"),
+	OPT_WITH_ARG("--stats-time-dir <n>", opt_set_charp, NULL,
+		     &args.svt_dir, "output dir for stats/time"),
 	OPT_WITHOUT_ARG("-r|--rebalance", opt_set_bool,
 			&args.rebalance, "rebalance results to make means match"),
 	OPT_WITHOUT_ARG("-q|--quiet", opt_set_bool,
@@ -119,6 +123,26 @@ static int make_hm(struct delay *d, FILE *f)
 	for (i = 0; i < dim[0]; i++)
 		free(hm_table[i]);
 	free(hm_table);
+
+	return 0;
+}
+
+static int make_stats_vs_time(struct delay *d, FILE *f)
+{
+	const u32 n_blocks = d->n_samples / args.svt_block;
+	struct trace *t;
+	u32 i;
+
+	if (!d->t[0].svt_stats || !d->corr_vs_time)
+		return 0;
+
+	for (i = 0; i < n_blocks; i++) {
+		for_each_trace(d, t)
+			fprintf(f, "%u %u %le %le ",
+				t->svt_stats[i].min, t->svt_stats[i].max,
+				t->svt_stats[i].mean, t->svt_stats[i].stdev);
+		fprintf(f, "%le\n", d->corr_vs_time[i]);
+	}
 
 	return 0;
 }
@@ -219,10 +243,21 @@ static void calc_all_stats(struct delay *d)
 		msg("\tTrace %d: min %u max %u mean %lf stdev %lf\n",
 		    i, t->min, t->max, t->mean, t->stdev);
 
+		if (args.svt_block) {
+			t->svt_stats = tal_arr(d, struct stats_vs_time,
+					       d->n_samples / args.svt_block);
+
+			calc_svt_basic(t, d->n_samples);
+			calc_svt_stdev(t, d->n_samples);
+		}
+
 		if (args.rebalance && i == 1)
 			maybe_rebalance(d);
-
 	}
+
+	if (args.svt_block && args.svt_dir)
+		calc_svt_corr(d);
+
 	calc_corr(d);
 	msg("\tCorrelation: %lf\n", d->corr);
 
@@ -320,6 +355,8 @@ int main(int argc, char **argv)
 		make_per_delay(args.hm, db, make_hm);
 	if (args.stats)
 		make_per_delay(args.stats, db, make_stats);
+	if (args.svt_dir)
+		make_per_delay(args.svt_dir, db, make_stats_vs_time);
 
 	tal_free(db);
 

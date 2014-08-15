@@ -59,9 +59,12 @@ struct cmdline_args {
 
 	bool rebalance;
 
+	unsigned svt_block;
+
 	char *distr;
 	char *hm;
 	char *stats;
+	char *svt_dir;
 	int aggr;
 };
 
@@ -75,6 +78,7 @@ struct delay {
 	bool distrs_failed;
 
 	double corr;
+	double *corr_vs_time;
 
 	char *fname;
 
@@ -89,6 +93,15 @@ struct delay {
 		double mean;
 		double stdev_sum;
 		double stdev;
+
+		struct stats_vs_time {
+			u32 min;
+			u32 max;
+			u64 sum;
+			double mean;
+			double stdev_sum;
+			double stdev;
+		} *svt_stats;
 
 		/* fitted EVT distribution */
 		struct evt_distr {
@@ -140,5 +153,7 @@ void calc_stdev(struct trace *t, u32 n_samples);
 void calc_gumbel(struct trace *t, u32 n_samples);
 void calc_corr(struct delay *d);
 void balance_means(struct delay *d);
-
+void calc_svt_basic(struct trace *t, u32 n_samples);
+void calc_svt_stdev(struct trace *t, u32 n_samples);
+void calc_svt_corr(struct delay *d);
 #endif
