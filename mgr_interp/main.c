@@ -45,6 +45,8 @@ static struct opt_table opts[] = {
 		     &args.skip_notif, "skip <n> results when notif seen"),
 	OPT_WITH_ARG("-b|--skip-begin <n>", opt_set_uintval, NULL,
 		     &args.skip_begin, "skip <n> at the beginning"),
+	OPT_WITH_ARG("-R|--dump-raw <dir>", opt_set_charp, NULL,
+		     &args.raw, "dump raw data set to file"),
 	OPT_WITH_ARG("-D|--distribution <dir>", opt_set_charp, NULL,
 		     &args.distr, "dump distributions to given directory"),
 	OPT_WITH_ARG("-H|--heatmap <dir>", opt_set_charp, NULL,
@@ -65,6 +67,16 @@ static struct opt_table opts[] = {
 };
 
 typedef int (*delay2file_fn)(struct delay *d, FILE *f);
+
+static int make_raw(struct delay *d, FILE *f)
+{
+	u32 i;
+
+	for (i = 0; i < d->n_samples; i++)
+		fprintf(f, "%u %u\n", d->t[0].samples[i], d->t[1].samples[i]);
+
+	return 0;
+}
 
 static int make_distr(struct delay *d, FILE *f)
 {
@@ -349,6 +361,8 @@ int main(int argc, char **argv)
 	if (!db)
 		return 1;
 
+	if (args.raw)
+		make_per_delay(args.raw, db, make_raw);
 	if (args.distr)
 		make_per_delay(args.distr, db, make_distr);
 	if (args.hm)

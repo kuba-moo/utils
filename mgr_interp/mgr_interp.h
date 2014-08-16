@@ -61,6 +61,7 @@ struct cmdline_args {
 
 	unsigned svt_block;
 
+	char *raw;
 	char *distr;
 	char *hm;
 	char *stats;
