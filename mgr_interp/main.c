@@ -55,7 +55,7 @@ static struct opt_table opts[] = {
 		     &args.aggr, "aggregation for simple statistics (bucket size)"),
 	OPT_WITH_ARG("--stats-time-block <n>", opt_set_uintval, NULL,
 		     &args.svt_block, "block for stats/time"),
-	OPT_WITH_ARG("--stats-time-dir <n>", opt_set_charp, NULL,
+	OPT_WITH_ARG("--stats-time-dir <dir>", opt_set_charp, NULL,
 		     &args.svt_dir, "output dir for stats/time"),
 	OPT_WITHOUT_ARG("-r|--rebalance", opt_set_bool,
 			&args.rebalance, "rebalance results to make means match"),
